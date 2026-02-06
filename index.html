@@ -219,8 +219,8 @@ const lampPostMat=new THREE.MeshPhongMaterial({color:0x252525,specular:0x333333,
 const lampGlassMat=new THREE.MeshBasicMaterial({color:0xffe8c0,transparent:true,opacity:0.75});
 function createLampPost(){
   const g=new THREE.Group();
-  g.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.10,LAMP_HEIGHT,6),lampPostMat),{position:new THREE.Vector3()}));
-  const pole=g.children[0];pole.position.y=LAMP_HEIGHT/2;
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.10,LAMP_HEIGHT,6),lampPostMat);
+  pole.position.y=LAMP_HEIGHT/2;g.add(pole);
   const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,LAMP_ARM_REACH,4),lampPostMat);
   arm.rotation.z=Math.PI/2;arm.position.set(-LAMP_ARM_REACH/2,LAMP_HEIGHT-0.15,0);g.add(arm);
   const housing=new THREE.Mesh(new THREE.BoxGeometry(0.45,0.12,0.75),new THREE.MeshPhongMaterial({color:0x1a1a1a}));
@@ -307,7 +307,7 @@ function createSedan(colour){
   const wPos=[[-0.76,0.27,-1.10],[0.76,0.27,-1.10],[-0.76,0.27,1.10],[0.76,0.27,1.10]];
   for(const[wx,wy,wz]of wPos){
     const wG=new THREE.Group();wG.position.set(wx,wy,wz);
-    wG.add(Object.assign(new THREE.Mesh(tG,rubberMat),{})).rotation.y=Math.PI/2;
+    const tire=new THREE.Mesh(tG,rubberMat);tire.rotation.y=Math.PI/2;wG.add(tire);
     const rm=new THREE.Mesh(rG,chromeMat);rm.rotation.z=Math.PI/2;wG.add(rm);
     const hb=new THREE.Mesh(hG,trimMat);hb.rotation.z=Math.PI/2;wG.add(hb);
     for(let si=0;si<5;si++){const sp=new THREE.Mesh(spG,chromeMat);sp.rotation.x=(si/5)*Math.PI*2;wG.add(sp);}
@@ -338,7 +338,6 @@ function createSedan(colour){
   const hlGlow=new THREE.MeshBasicMaterial({color:0xffffee,transparent:true,opacity:0.50,depthWrite:false});
   const hlGlowOut=new THREE.MeshBasicMaterial({color:0xffeecc,transparent:true,opacity:0.18,depthWrite:false});
   for(const sx of[-0.46,0.46]){
-    g.add(Object.assign(new THREE.Mesh(new THREE.SphereGeometry(0.65,8,6),hlGlow),{}).position.set(sx,0.60,-1.96)&&g.children[g.children.length-1]||g.children[g.children.length-1]);
     const gl=new THREE.Mesh(new THREE.SphereGeometry(0.65,8,6),hlGlow);gl.position.set(sx,0.60,-1.96);g.add(gl);
     const og=new THREE.Mesh(new THREE.SphereGeometry(1.2,8,6),hlGlowOut);og.position.set(sx,0.60,-1.96);g.add(og);
   }
