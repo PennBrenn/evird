@@ -248,13 +248,75 @@ function createBillboard(){const g=new THREE.Group();
   const p1=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,6,4),landmarkMat);p1.position.set(-1.5,3,0);g.add(p1);
   const p2=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,6,4),landmarkMat);p2.position.set(1.5,3,0);g.add(p2);
   const board=new THREE.Mesh(new THREE.BoxGeometry(5,2.5,0.15),landmarkMat);board.position.set(0,7,0);g.add(board);return g;}
+function createSilo(){const g=new THREE.Group();
+  const tank=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.2,14,8),landmarkMat);tank.position.y=7;g.add(tank);
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(2.2,8,6,0,Math.PI*2,0,Math.PI/2),landmarkMat);dome.position.y=14;g.add(dome);
+  const ladder=new THREE.Mesh(new THREE.BoxGeometry(0.15,14,0.08),landmarkMat);ladder.position.set(2.3,7,0);g.add(ladder);return g;}
+function createRadioTower(){const g=new THREE.Group();
+  // Main tower structure (tapers up)
+  const base=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.6,5,4),landmarkMat);base.position.y=2.5;g.add(base);
+  const mid=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.2,8,4),landmarkMat);mid.position.y=9;g.add(mid);
+  const top=new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.15,6,4),landmarkMat);top.position.y=16;g.add(top);
+  // Antenna tip
+  const tip=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.10,3,4),landmarkMat);tip.position.y=20.5;g.add(tip);
+  // Cross beams
+  for(const h of[4,10,15]){
+    const beam=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.08,0.08),landmarkMat);beam.position.y=h;g.add(beam);}
+  return g;}
+function createWindmill(){const g=new THREE.Group();
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.35,12,6),landmarkMat);pole.position.y=6;g.add(pole);
+  const nacelle=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.8,0.8),landmarkMat);nacelle.position.y=12;g.add(nacelle);
+  // 3 blades
+  const bladeGeo=new THREE.BoxGeometry(0.12,5.0,0.8);
+  for(let i=0;i<3;i++){
+    const blade=new THREE.Mesh(bladeGeo,landmarkMat);
+    blade.position.set(0,12,0.6);
+    blade.rotation.z=(i*Math.PI*2/3);
+    const pivotY=12;
+    blade.position.y=pivotY+2.5*Math.sin(i*Math.PI*2/3);
+    blade.position.x=2.5*Math.cos(i*Math.PI*2/3);
+    g.add(blade);
+  }
+  g.userData.blades=[];
+  return g;
+}
+function createPowerLines(){const g=new THREE.Group();
+  // 3 poles in a row
+  for(let i=0;i<3;i++){
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.15,8,4),landmarkMat);
+    pole.position.set(i*6-6,4,0);g.add(pole);
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.08,0.08),landmarkMat);
+    arm.position.set(i*6-6,7.8,0);g.add(arm);
+  }
+  // Wires
+  const wireGeo=new THREE.BufferGeometry();
+  const wireVerts=[];
+  for(let w=-1;w<=1;w++){
+    for(let i=0;i<2;i++){
+      const x1=(i*6-6)+w*0.8,x2=((i+1)*6-6)+w*0.8;
+      const y=7.5;
+      wireVerts.push(x1,y,0,x2,y,0);
+    }
+  }
+  wireGeo.setAttribute('position',new THREE.Float32BufferAttribute(wireVerts,3));
+  const wireMat=new THREE.LineBasicMaterial({color:0x1a1a1a});
+  const wires=new THREE.LineSegments(wireGeo,wireMat);
+  g.add(wires);
+  return g;
+}
+function createSmallBuilding(){const g=new THREE.Group();
+  const build=new THREE.Mesh(new THREE.BoxGeometry(4,6,4),landmarkMat);build.position.y=3;g.add(build);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(3,2,4),landmarkMat);roof.position.y=7;roof.rotation.y=Math.PI/4;g.add(roof);return g;}
+
 function spawnLandmarks(loopNum){
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
   const rng=seededRNG(loopNum*3917+11);
-  for(let i=0;i<6;i++){
-    const side=(i%2===0)?1:-1;const dist=25+rng()*40;
+  const types=[createWaterTower,createBillboard,createSilo,createRadioTower,createWindmill,createPowerLines,createSmallBuilding];
+  for(let i=0;i<12;i++){ // Increased from 6 to 12
+    const side=(i%2===0)?1:-1;const dist=25+rng()*50;
     const z=rng()*ROAD_LENGTH;
-    const lm=rng()>0.5?createWaterTower():createBillboard();
+    const typeIdx=Math.floor(rng()*types.length);
+    const lm=types[typeIdx]();
     lm.position.set(side*dist,0,0);lm.userData.oz=z;
     scene.add(lm);landmarks.push(lm);}}
 
@@ -302,7 +364,7 @@ function createSemiTruck(){
 semiTruck=createSemiTruck();scene.add(semiTruck);
 
 // ── Pedestrian crossing ──────────────────────────────────────────────
-let pedestrianActive=false;let pedestrianX=0;let pedestrianProgress=0;let nextPedestrianSol=0;
+let pedestrianActive=false;let pedestrianX=0;let pedestrianZ=0;let pedestrianDir=1;let nextPedestrianSol=0;
 function createPedestrian(){
   const g=new THREE.Group();
   // Pale white humanoid figure
@@ -320,10 +382,10 @@ function createPedestrian(){
   const legL=new THREE.Mesh(legGeo,bodyMat);legL.position.set(-0.15,0.55,0);g.add(legL);
   const legR=new THREE.Mesh(legGeo,bodyMat);legR.position.set(0.15,0.55,0);g.add(legR);
   
-  // Black censoring box
+  // Black censoring box - MUCH LARGER to fully cover the pedestrian
   const censorMat=new THREE.MeshBasicMaterial({color:0x000000});
-  const censorBox=new THREE.Mesh(new THREE.BoxGeometry(0.8,1.2,0.5),censorMat);
-  censorBox.position.y=1.5;g.add(censorBox);
+  const censorBox=new THREE.Mesh(new THREE.BoxGeometry(1.5,2.5,1.0),censorMat);
+  censorBox.position.y=1.25;g.add(censorBox);
   
   g.visible=false;return g;
 }
@@ -335,9 +397,10 @@ function spawnPedestrian(){
     // Random side to start from
     const startSide=Math.random()<0.5?-1:1;
     pedestrianX=startSide*(ROAD_WIDTH/2+4);
-    pedestrianProgress=0;
+    pedestrianDir=startSide>0?-1:1; // Direction to walk across
+    pedestrianZ=progress+60+Math.random()*40; // Spawn ahead of player
     pedestrian.visible=true;
-    pedestrian.position.set(pedestrianX,0,-progress-20);
+    pedestrian.position.set(pedestrianX,0,pedestrianZ);
     pedestrian.rotation.y=startSide>0?-Math.PI/2:Math.PI/2;
     // Schedule next pedestrian
     nextPedestrianSol=sols+PED_MIN_INTERVAL+Math.floor(Math.random()*(PED_MAX_INTERVAL-PED_MIN_INTERVAL));
@@ -347,18 +410,20 @@ function updatePedestrian(){
   if(!pedestrianActive)return;
   // Walk across the road
   const crossSpeed=0.05;
-  const dir=Math.sign(Math.cos(pedestrian.rotation.y));
-  pedestrianX+=dir*crossSpeed;
+  pedestrianX+=pedestrianDir*crossSpeed;
   pedestrian.position.x=pedestrianX;
-  pedestrian.position.z=-progress-20;
-  pedestrianProgress+=crossSpeed;
+  pedestrian.position.z=pedestrianZ; // Keep Z constant - pedestrian doesn't follow player
+  
   // Check if crossed the road
   if(Math.abs(pedestrianX)>ROAD_WIDTH/2+5){
     pedestrianActive=false;
     pedestrian.visible=false;
   }
-  // Collision check
-  if(Math.abs(pedestrianX-currentX)<0.6&&Math.abs(pedestrian.position.z-(-progress))<1.5){
+  
+  // Collision check - check against player position
+  const distX=Math.abs(pedestrianX-currentX);
+  const distZ=Math.abs(pedestrianZ-progress);
+  if(distX<0.9&&distZ<2.0){
     // Random time 10:00 to 60:00
     const randomSeconds=10*60+Math.floor(Math.random()*(50*60));
     const mins=Math.floor(randomSeconds/60);
