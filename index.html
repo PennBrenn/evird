@@ -441,8 +441,12 @@ function createSedan(colour) {
 
   // ── Chrome bumper strips ──────────────────────────────────
   const bStripGeo = new THREE.BoxGeometry(1.70, 0.04, 0.03);
-  g.add(Object.assign(new THREE.Mesh(bStripGeo, chromeMat), { position: new THREE.Vector3(0, 0.38, -2.35) }));
-  g.add(Object.assign(new THREE.Mesh(bStripGeo, chromeMat), { position: new THREE.Vector3(0, 0.38, 2.35) }));
+  const bFront = new THREE.Mesh(bStripGeo, chromeMat);
+  bFront.position.set(0, 0.38, -2.35);
+  g.add(bFront);
+  const bRear = new THREE.Mesh(bStripGeo, chromeMat);
+  bRear.position.set(0, 0.38, 2.35);
+  g.add(bRear);
 
   // ── Side mirrors ──────────────────────────────────────────
   for (const sx of [-1, 1]) {
