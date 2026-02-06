@@ -302,111 +302,201 @@ function updateLamps(progress) {
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  SEDAN MODEL
+//  SEDAN MODEL  (smooth curved body via ExtrudeGeometry)
+// ─────────────────────────────────────────────────────────────────────
+//  The side-profile is defined as a THREE.Shape with bezier curves,
+//  then extruded to the car's width. The bevel rounds every edge.
+//  After rotation the shape's X maps to car Z (length) and the
+//  extrude depth maps to car X (width). All detail pieces (glass,
+//  lights, wheels, mirrors) are positioned to match the new body.
 // ─────────────────────────────────────────────────────────────────────
 
 function createSedan(colour) {
   const g = new THREE.Group();
 
-  const body = new THREE.MeshPhongMaterial({
-    color: colour, specular: 0x555555, shininess: 95, flatShading: false
+  // ── Materials ──────────────────────────────────────────────
+  const bodyMat = new THREE.MeshPhongMaterial({
+    color: colour, specular: 0x666666, shininess: 115, flatShading: false
   });
-  const glass = new THREE.MeshPhongMaterial({
-    color: 0x080812, specular: 0x999999, shininess: 130,
-    transparent: true, opacity: 0.65
+  const glassMat = new THREE.MeshPhongMaterial({
+    color: 0x080812, specular: 0xaaaaaa, shininess: 140,
+    transparent: true, opacity: 0.58, depthWrite: false
   });
-  const trim = new THREE.MeshPhongMaterial({
-    color: 0x0f0f0f, specular: 0x333333, shininess: 30
+  const trimMat = new THREE.MeshPhongMaterial({
+    color: 0x0c0c0c, specular: 0x444444, shininess: 35
   });
-  const rubber = new THREE.MeshPhongMaterial({
-    color: 0x0a0a0a, specular: 0x111111, shininess: 8
+  const rubberMat = new THREE.MeshPhongMaterial({
+    color: 0x080808, specular: 0x0e0e0e, shininess: 6
+  });
+  const chromeMat = new THREE.MeshPhongMaterial({
+    color: 0x222222, specular: 0x999999, shininess: 90
   });
 
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.42, 4.7), body);
-  chassis.position.y = 0.44;
-  g.add(chassis);
+  // ── Side-profile shape (XY plane; X = length, Y = height) ─
+  //
+  //  Counterclockwise winding (front-bottom → up → across roof → down → bottom)
+  //
+  const s = new THREE.Shape();
+  s.moveTo(-2.32, 0.22);                                          // front-bottom
+  s.lineTo(-2.32, 0.42);                                          // front face
+  s.quadraticCurveTo(-2.27, 0.60, -1.88, 0.67);                  // front bumper curve
+  s.lineTo(-1.08, 0.72);                                          // hood
+  s.bezierCurveTo(-0.82, 0.73, -0.48, 1.16, -0.22, 1.36);       // A-pillar / windshield
+  s.bezierCurveTo(-0.02, 1.445, 0.56, 1.45, 0.76, 1.37);        // roof
+  s.bezierCurveTo(0.94, 1.22, 1.10, 0.90, 1.28, 0.76);          // C-pillar / rear window
+  s.lineTo(1.88, 0.71);                                           // trunk deck
+  s.quadraticCurveTo(2.27, 0.60, 2.32, 0.42);                    // rear bumper curve
+  s.lineTo(2.32, 0.22);                                           // rear face
+  s.lineTo(-2.32, 0.22);                                          // undercarriage (closes shape)
 
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.16, 1.35), body);
-  hood.position.set(0, 0.74, -1.30);
-  g.add(hood);
+  const BODY_W = 1.84;        // total body width (extrude depth)
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.52, 2.0), body);
-  cabin.position.set(0, 1.10, 0.05);
-  g.add(cabin);
+  const bodyGeo = new THREE.ExtrudeGeometry(s, {
+    depth:          BODY_W,
+    bevelEnabled:   true,
+    bevelThickness: 0.045,
+    bevelSize:      0.045,
+    bevelSegments:  3,
+    curveSegments:  16
+  });
 
-  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.14, 1.15), body);
-  trunk.position.set(0, 0.73, 1.42);
-  g.add(trunk);
+  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+  // Rotate so shape X → car -Z  and extrude Z → car -X
+  // Mapping: (x,y,z) → (-z, y, x)  after rotation.y = -PI/2
+  bodyMesh.rotation.y = -Math.PI / 2;
+  bodyMesh.position.x = BODY_W / 2;    // centre the width
+  g.add(bodyMesh);
 
-  const ws = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.50, 0.04), glass);
-  ws.rotation.x = 0.38;
-  ws.position.set(0, 1.04, -0.92);
-  g.add(ws);
-
-  const rw = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.44, 0.04), glass);
-  rw.rotation.x = -0.42;
-  rw.position.set(0, 1.02, 1.02);
-  g.add(rw);
-
-  for (const s of [-1, 1]) {
-    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.34, 1.55), glass);
-    sw.position.set(s * 0.82, 1.10, 0.05);
-    g.add(sw);
+  // ── Lower side-sill trim (thin strip along the rocker panel) ──
+  for (const sx of [-1, 1]) {
+    const sill = new THREE.Mesh(
+      new THREE.BoxGeometry(0.025, 0.06, 3.4), trimMat
+    );
+    sill.position.set(sx * (BODY_W / 2 + 0.01), 0.26, 0);
+    g.add(sill);
   }
 
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.035, 1.75), trim);
-  roof.position.set(0, 1.375, 0.05);
-  g.add(roof);
+  // ── Windshield glass (slightly proud of body surface) ─────
+  const wsGeo = new THREE.PlaneGeometry(1.52, 0.56);
+  const ws = new THREE.Mesh(wsGeo, glassMat);
+  ws.rotation.x = 0.44;
+  ws.position.set(0, 1.08, -0.88);
+  g.add(ws);
 
-  const bGeo = new THREE.BoxGeometry(1.92, 0.22, 0.16);
-  const fb = new THREE.Mesh(bGeo, trim);
-  fb.position.set(0, 0.33, -2.40);
-  g.add(fb);
-  const rb = new THREE.Mesh(bGeo, trim);
-  rb.position.set(0, 0.33, 2.40);
-  g.add(rb);
+  // ── Rear window ───────────────────────────────────────────
+  const rwGeo = new THREE.PlaneGeometry(1.46, 0.46);
+  const rw = new THREE.Mesh(rwGeo, glassMat);
+  rw.rotation.x = -0.48;
+  rw.position.set(0, 1.05, 0.96);
+  g.add(rw);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.22, 14);
-  const rimGeo   = new THREE.CylinderGeometry(0.20, 0.20, 0.24, 10);
-  const rimMat   = new THREE.MeshPhongMaterial({
-    color: 0x2a2a2a, specular: 0x777777, shininess: 55
-  });
+  // ── Side windows (two per side — front door, rear door) ───
+  for (const sx of [-1, 1]) {
+    // Front door window
+    const swF = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.34), glassMat);
+    swF.rotation.y = sx * Math.PI / 2;
+    swF.position.set(sx * (BODY_W / 2 + 0.025), 1.12, -0.24);
+    g.add(swF);
+    // Rear door window
+    const swR = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.32), glassMat);
+    swR.rotation.y = sx * Math.PI / 2;
+    swR.position.set(sx * (BODY_W / 2 + 0.025), 1.11, 0.40);
+    g.add(swR);
+  }
+
+  // ── Wheels (torus tire + cylinder rim + hub cap) ──────────
+  const tireGeo  = new THREE.TorusGeometry(0.29, 0.095, 10, 22);
+  const rimGeo   = new THREE.CylinderGeometry(0.21, 0.21, 0.16, 18);
+  const hubGeo   = new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10);
+  const spokeGeo = new THREE.BoxGeometry(0.03, 0.38, 0.03);
 
   const wPos = [
-    [-0.88, 0.32, -1.35], [ 0.88, 0.32, -1.35],
-    [-0.88, 0.32,  1.35], [ 0.88, 0.32,  1.35]
+    [-0.86, 0.29, -1.36], [0.86, 0.29, -1.36],   // front
+    [-0.86, 0.29,  1.36], [0.86, 0.29,  1.36]     // rear
   ];
+
   for (const [wx, wy, wz] of wPos) {
-    const wheel = new THREE.Mesh(wheelGeo, rubber);
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(wx, wy, wz);
-    g.add(wheel);
-    const rim = new THREE.Mesh(rimGeo, rimMat);
+    // Tire (torus rotated so ring faces sideways)
+    const tire = new THREE.Mesh(tireGeo, rubberMat);
+    tire.rotation.z = Math.PI / 2;       // ring now in YZ plane, axis along X
+    tire.position.set(wx, wy, wz);
+    g.add(tire);
+
+    // Rim disc
+    const rim = new THREE.Mesh(rimGeo, chromeMat);
     rim.rotation.z = Math.PI / 2;
     rim.position.set(wx, wy, wz);
     g.add(rim);
+
+    // Hub cap
+    const hub = new THREE.Mesh(hubGeo, trimMat);
+    hub.rotation.z = Math.PI / 2;
+    hub.position.set(wx, wy, wz);
+    g.add(hub);
+
+    // Spokes (5 per wheel, rotated around X-axis)
+    for (let si = 0; si < 5; si++) {
+      const spoke = new THREE.Mesh(spokeGeo, chromeMat);
+      const a = (si / 5) * Math.PI * 2;
+      spoke.position.set(wx, wy, wz);
+      spoke.rotation.set(a, 0, Math.PI / 2);
+      g.add(spoke);
+    }
   }
 
+  // ── Headlights (half-sphere for realism) ──────────────────
   const hlMat = new THREE.MeshBasicMaterial({ color: 0xfff4e0 });
-  for (const sx of [-0.62, 0.62]) {
-    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.07), hlMat);
-    hl.position.set(sx, 0.54, -2.38);
+  for (const sx of [-0.56, 0.56]) {
+    const hlGeo = new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const hl = new THREE.Mesh(hlGeo, hlMat);
+    hl.rotation.x = Math.PI / 2;         // dome faces forward (-Z)
+    hl.position.set(sx, 0.54, -2.34);
     g.add(hl);
   }
 
+  // ── Taillights (slightly rounded) ─────────────────────────
   const tlMat = new THREE.MeshBasicMaterial({ color: 0x880000 });
-  for (const sx of [-0.62, 0.62]) {
-    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.11, 0.06), tlMat);
-    tl.position.set(sx, 0.54, 2.38);
+  for (const sx of [-0.56, 0.56]) {
+    const tl = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.09, 0.04), tlMat
+    );
+    tl.position.set(sx, 0.54, 2.34);
     g.add(tl);
+    // Small reflector below taillight
+    const ref = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.03, 0.03),
+      new THREE.MeshBasicMaterial({ color: 0x550000 })
+    );
+    ref.position.set(sx, 0.46, 2.34);
+    g.add(ref);
   }
 
-  for (const s of [-1, 1]) {
-    const mir = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.08, 0.10), trim
-    );
-    mir.position.set(s * 0.98, 0.88, -0.60);
-    g.add(mir);
+  // ── Chrome bumper strips ──────────────────────────────────
+  const bStripGeo = new THREE.BoxGeometry(1.70, 0.04, 0.03);
+  const fStrip = new THREE.Mesh(bStripGeo, chromeMat);
+  fStrip.position.set(0, 0.38, -2.35);
+  g.add(fStrip);
+  const rStrip = new THREE.Mesh(bStripGeo, chromeMat);
+  rStrip.position.set(0, 0.38, 2.35);
+  g.add(rStrip);
+
+  // ── Side mirrors ──────────────────────────────────────────
+  for (const sx of [-1, 1]) {
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.04), trimMat);
+    stem.position.set(sx * 0.98, 0.92, -0.52);
+    g.add(stem);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), chromeMat);
+    head.position.set(sx * 1.06, 0.92, -0.52);
+    g.add(head);
+  }
+
+  // ── Door seam lines ───────────────────────────────────────
+  for (const sx of [-1, 1]) {
+    for (const dz of [-0.12, 0.78]) {
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.40, 0.008), trimMat);
+      seam.position.set(sx * (BODY_W / 2 + 0.025), 0.56, dz);
+      g.add(seam);
+    }
   }
 
   return g;
@@ -591,41 +681,68 @@ function tickRain(anchor) {
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  DYNAMIC CAMERA  (with lateral lag + lean-into-turn)
+//  DYNAMIC CAMERA  (fully smoothed — no raw-input jumps)
+// ─────────────────────────────────────────────────────────────────────
+//  Every camera parameter is interpolated through its own low-pass
+//  filter. Raw steer input (-1/0/1) is first smoothed into
+//  `smoothSteer`, which drives lean offset and roll. The look-at
+//  target is a persistent Vector3 that lerps toward the desired
+//  point each frame, eliminating the jerk that comes from passing
+//  an instantly-changing vector to camera.lookAt().
 // ─────────────────────────────────────────────────────────────────────
 
-let camRoll = 0;
-let camFov  = 66;
+let camRoll      = 0;
+let camFov       = 66;
+let smoothSteer  = 0;                          // low-pass filtered steer
+const _lookTarget = new THREE.Vector3(0, 0.9, -22);
+let   _lookInit   = false;
 
-function updateCamera(carPos, spd, str) {
+function updateCamera(carPos, spd, rawSteer) {
   const sf = spd / MAX_SPEED;
 
-  // Camera X lags behind car — gives a cinematic pull feel
-  camLagX += (carPos.x - camLagX) * 0.032;
+  // ── Smooth the binary steer input ──────────────────────────
+  smoothSteer += (rawSteer - smoothSteer) * 0.04;
 
-  // Lean offset: push the camera opposite to the steer direction
-  // so the view leans INTO the turn
-  const leanOffset = -str * 0.65;
+  // ── Lateral lag (camera trails the car sideways) ───────────
+  camLagX += (carPos.x - camLagX) * 0.025;
 
-  const ix = camLagX * 0.32 + leanOffset;
-  const iy = 2.6 + sf * 0.55 + Math.abs(str) * 0.18;
+  // ── Lean offset (smoothed — no direction-change snaps) ─────
+  const lean = -smoothSteer * 0.48;
+
+  // ── Desired camera position ────────────────────────────────
+  const ix = camLagX * 0.34 + lean;
+  const iy = 2.55 + sf * 0.50 + Math.abs(smoothSteer) * 0.12;
   const iz = carPos.z + 6.8 + sf * 2.2;
 
-  camera.position.x += (ix - camera.position.x) * 0.048;
-  camera.position.y += (iy - camera.position.y) * 0.040;
-  camera.position.z += (iz - camera.position.z) * 0.048;
+  // ── Smooth position follow (low rates = cinematic weight) ──
+  camera.position.x += (ix - camera.position.x) * 0.028;
+  camera.position.y += (iy - camera.position.y) * 0.026;
+  camera.position.z += (iz - camera.position.z) * 0.036;
 
-  const la = 22 + sf * 16;
-  camera.lookAt(carPos.x * 0.55 + leanOffset * 0.3, 0.9, carPos.z - la);
+  // ── Smooth look-at target (persistent, interpolated) ───────
+  const la     = 22 + sf * 16;
+  const wantLX = carPos.x * 0.48 + lean * 0.22;
+  const wantLY = 0.9;
+  const wantLZ = carPos.z - la;
 
-  // Roll lean — stronger for cinematic feel
-  const tr = -str * 0.038;
-  camRoll += (tr - camRoll) * 0.035;
+  if (!_lookInit) {
+    _lookTarget.set(wantLX, wantLY, wantLZ);
+    _lookInit = true;
+  }
+  _lookTarget.x += (wantLX - _lookTarget.x) * 0.030;
+  _lookTarget.y += (wantLY - _lookTarget.y) * 0.030;
+  _lookTarget.z += (wantLZ - _lookTarget.z) * 0.048;
+
+  camera.lookAt(_lookTarget);
+
+  // ── Roll (smoothed via smoothSteer + its own lerp) ─────────
+  const tr = -smoothSteer * 0.028;
+  camRoll += (tr - camRoll) * 0.022;
   camera.rotation.z = camRoll;
 
-  // FOV stretch
+  // ── FOV stretch ────────────────────────────────────────────
   const tf = 64 + sf * 10;
-  camFov += (tf - camFov) * 0.025;
+  camFov += (tf - camFov) * 0.018;
   camera.fov = camFov;
   camera.updateProjectionMatrix();
 }
