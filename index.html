@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Empty Freeway</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  THE EMPTY FREEWAY — Endless Loop Driving Simulation
+// ═══════════════════════════════════════════════════════════════════════
+//
+//  A non-Euclidean driving experience on an infinite, rain-slicked
+//  freeway. No HUD. No score. Just the road, the lamps, the dark,
+//  and the ghosts of your previous selves rising from behind you.
+//
+// ═══════════════════════════════════════════════════════════════════════
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────────────────────────────
+
+const ROAD_LENGTH     = 1000;       // one full loop in world units
+const ROAD_WIDTH      = 14;         // total paved width (3 lanes + shoulders)
+const LANE_WIDTH      = 3.5;        // single lane width
+const SHOULDER_EXTRA  = 3;          // unpaved shoulder beyond road edge
+
+const LAMP_SPACING    = 50;         // meters between street lamps
+const LAMP_HEIGHT     = 9;          // height of the lamp head
+const LAMP_ARM_REACH  = 3.5;       // how far the arm extends over the road
+const NUM_LAMP_SLOTS  = 12;         // pooled lamp objects (covers visible range)
+
+const FOG_DENSITY     = 0.014;      // exponential fog — hides the wrap seam
+
+const BASE_SPEED      = 0.45;       // default cruising speed (units/frame)
+const MAX_SPEED       = 1.4;        // top speed
+const MIN_SPEED       = 0.08;       // can't fully stop
+const ACCEL           = 0.007;      // throttle acceleration per frame
+const BRAKE           = 0.014;      // brake deceleration per frame
+const DRAG            = 0.0015;     // passive drag toward base speed
+
+const STEER_RATE      = 0.09;       // lateral movement per frame at base speed
+const MAX_LATERAL     = 6.5;        // hard limit for X position
+
+// Ghost ascending merge parameters
+const MERGE_FRAMES    = 420;        // ~7 seconds at 60fps to fully appear
+const MERGE_START_Y   = -3.5;       // starts this far below the road
+const MERGE_START_Z   = 30;         // starts this far behind the camera
+
+// Rain
+const RAIN_COUNT      = 5000;
+const RAIN_SPREAD     = 70;
+const RAIN_HEIGHT     = 25;
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  RENDERER, SCENE, CAMERA
+// ─────────────────────────────────────────────────────────────────────
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.65;
+renderer.physicallyCorrectLights = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+scene.fog = new THREE.FogExp2(0x000000, FOG_DENSITY);
+
+const camera = new THREE.PerspectiveCamera(
+  66, window.innerWidth / window.innerHeight, 0.1, 600
+);
+
+// Extremely dim ambient — only street lamps provide real illumination
+scene.add(new THREE.AmbientLight(0x0a0a12, 0.12));
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  ROAD SYSTEM
+// ─────────────────────────────────────────────────────────────────────
+//  Each "segment" is one full ROAD_LENGTH stretch. We tile three
+//  segments so the player always has road visible ahead and behind,
+//  making the modulo wrap completely invisible.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Shared materials (created once, reused across segments) */
+const asphaltMat = new THREE.MeshStandardMaterial({
+  color: 0x181818, roughness: 0.18, metalness: 0.05   // wet pavement
+});
+const shoulderMat = new THREE.MeshStandardMaterial({
+  color: 0x0e0e0e, roughness: 0.45, metalness: 0.0    // rough shoulder
+});
+const markingMat = new THREE.MeshStandardMaterial({
+  color: 0x55554a, roughness: 0.30, emissive: 0x0a0a08, emissiveIntensity: 0.1
+});
+const railMat = new THREE.MeshPhongMaterial({
+  color: 0x303030, specular: 0x444444, shininess: 25
+});
+const medianMat = new THREE.MeshStandardMaterial({
+  color: 0x222222, roughness: 0.6, metalness: 0.0
+});
+
+function createRoadSegment() {
+  const g = new THREE.Group();
+
+  // ── Asphalt surface ─────────────────────────────────────────
+  const roadGeo = new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LENGTH, 1, 1);
+  const road = new THREE.Mesh(roadGeo, asphaltMat);
+  road.rotation.x = -Math.PI / 2;
+  road.position.set(0, 0, -ROAD_LENGTH / 2);
+  g.add(road);
+
+  // ── Shoulders (slightly lower, rougher) ─────────────────────
+  const shGeo = new THREE.PlaneGeometry(ROAD_WIDTH + SHOULDER_EXTRA * 2, ROAD_LENGTH, 1, 1);
+  const sh = new THREE.Mesh(shGeo, shoulderMat);
+  sh.rotation.x = -Math.PI / 2;
+  sh.position.set(0, -0.015, -ROAD_LENGTH / 2);
+  g.add(sh);
+
+  // ── Dashed lane dividers ────────────────────────────────────
+  //  3 lanes → dividers at x = ±LANE_WIDTH/2 = ±1.75
+  const dashLen = 4, gapLen = 7;
+  const cycle  = dashLen + gapLen;
+  const nDash  = Math.ceil(ROAD_LENGTH / cycle);
+  const dashGeo = new THREE.PlaneGeometry(0.13, dashLen);
+
+  for (const lx of [-LANE_WIDTH / 2, LANE_WIDTH / 2]) {
+    for (let i = 0; i < nDash; i++) {
+      const d = new THREE.Mesh(dashGeo, markingMat);
+      d.rotation.x = -Math.PI / 2;
+      d.position.set(lx, 0.006, -(i * cycle + dashLen / 2));
+      g.add(d);
+    }
+  }
+
+  // ── Solid edge lines ────────────────────────────────────────
+  const edgeGeo = new THREE.PlaneGeometry(0.14, ROAD_LENGTH);
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(edgeGeo, markingMat);
+    e.rotation.x = -Math.PI / 2;
+    e.position.set(sx * (ROAD_WIDTH / 2 - 0.5), 0.006, -ROAD_LENGTH / 2);
+    g.add(e);
+  }
+
+  // ── Metal guardrails ────────────────────────────────────────
+  const gRailGeo = new THREE.BoxGeometry(0.07, 0.7, ROAD_LENGTH);
+  for (const sx of [-1, 1]) {
+    const r = new THREE.Mesh(gRailGeo, railMat);
+    r.position.set(sx * (ROAD_WIDTH / 2 + 2), 0.35, -ROAD_LENGTH / 2);
+    g.add(r);
+    // Lower rail
+    const r2 = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.08, ROAD_LENGTH), railMat
+    );
+    r2.position.set(sx * (ROAD_WIDTH / 2 + 2), 0.08, -ROAD_LENGTH / 2);
+    g.add(r2);
+  }
+
+  // ── Concrete median strip (left edge, subtle) ───────────────
+  const medGeo = new THREE.BoxGeometry(0.6, 0.35, ROAD_LENGTH);
+  const med = new THREE.Mesh(medGeo, medianMat);
+  med.position.set(-(ROAD_WIDTH / 2 + 3.0), 0.17, -ROAD_LENGTH / 2);
+  g.add(med);
+
+  return g;
+}
+
+// Three tiled segments
+const segments = [createRoadSegment(), createRoadSegment(), createRoadSegment()];
+segments.forEach(s => scene.add(s));
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  STREET LAMP SYSTEM (pooled for performance)
+// ─────────────────────────────────────────────────────────────────────
+//  We maintain a fixed pool of lamp-post meshes and SpotLights.
+//  Each frame, we reposition them around the player so there are
+//  always lamps visible in both directions.
+// ─────────────────────────────────────────────────────────────────────
+
+const lampPostMat = new THREE.MeshPhongMaterial({
+  color: 0x252525, specular: 0x333333, shininess: 15
+});
+const lampGlassMat = new THREE.MeshBasicMaterial({
+  color: 0xffe8c0, transparent: true, opacity: 0.75
+});
+
+function createLampPost() {
+  const g = new THREE.Group();
+
+  // Vertical pole
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.075, 0.10, LAMP_HEIGHT, 6), lampPostMat
+  );
+  pole.position.y = LAMP_HEIGHT / 2;
+  g.add(pole);
+
+  // Horizontal arm
+  const arm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.04, 0.04, LAMP_ARM_REACH, 4), lampPostMat
+  );
+  arm.rotation.z = Math.PI / 2;
+  arm.position.set(-LAMP_ARM_REACH / 2, LAMP_HEIGHT - 0.15, 0);
+  g.add(arm);
+
+  // Lamp housing box
+  const housing = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.12, 0.75),
+    new THREE.MeshPhongMaterial({ color: 0x1a1a1a })
+  );
+  housing.position.set(-LAMP_ARM_REACH, LAMP_HEIGHT - 0.22, 0);
+  g.add(housing);
+
+  // Emissive glass panel (underside of housing)
+  const glass = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.38, 0.65), lampGlassMat
+  );
+  glass.rotation.x = -Math.PI / 2;
+  glass.position.set(-LAMP_ARM_REACH, LAMP_HEIGHT - 0.29, 0);
+  g.add(glass);
+
+  // Base plate
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.22, 0.12, 6), lampPostMat
+  );
+  base.position.y = 0.06;
+  g.add(base);
+
+  return g;
+}
+
+const lampPosts  = [];
+const lampSpots  = [];
+
+for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
+  const post = createLampPost();
+  scene.add(post);
+  lampPosts.push(post);
+
+  // Warm sodium-vapor SpotLight
+  const spot = new THREE.SpotLight(
+    0xffe0a0,        // warm colour
+    300,             // intensity (cd, physicallyCorrect)
+    65,              // distance
+    Math.PI / 3.2,   // cone angle
+    0.75,            // penumbra (soft edge)
+    2                // decay
+  );
+  spot.target = new THREE.Object3D();
+  scene.add(spot);
+  scene.add(spot.target);
+  lampSpots.push(spot);
+}
+
+/**
+ * Reposition the lamp pool so lamps surround the player.
+ * Lamps alternate left/right along the freeway.
+ */
+function updateLamps(progress) {
+  const base = Math.floor(progress / LAMP_SPACING) - 3;
+
+  for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
+    const idx = base + i;
+    const z   = idx * LAMP_SPACING;
+    const side = (idx % 2 === 0) ? 1 : -1;        // alternate sides
+
+    const postX  = side * (ROAD_WIDTH / 2 + 2);    // post on shoulder
+    const lightX = side * (ROAD_WIDTH / 2 - 1);    // light over road
+
+    lampPosts[i].position.set(postX, 0, -z);
+    lampPosts[i].scale.x = side;                    // mirror arm toward road
+
+    lampSpots[i].position.set(lightX, LAMP_HEIGHT, -z);
+    lampSpots[i].target.position.set(lightX * 0.3, 0, -z);
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  SEDAN MODEL
+// ─────────────────────────────────────────────────────────────────────
+//  A realistic four-door sedan built from box/cylinder primitives.
+//  Front faces -Z. Uses MeshPhongMaterial for specular highlights
+//  under lamp light. Ghosts use the exact same model — no visual
+//  difference whatsoever. Only behaviour separates them.
+// ─────────────────────────────────────────────────────────────────────
+
+function createSedan(colour) {
+  const g = new THREE.Group();
+
+  const body = new THREE.MeshPhongMaterial({
+    color: colour, specular: 0x555555, shininess: 95, flatShading: false
+  });
+  const glass = new THREE.MeshPhongMaterial({
+    color: 0x080812, specular: 0x999999, shininess: 130,
+    transparent: true, opacity: 0.65
+  });
+  const trim = new THREE.MeshPhongMaterial({
+    color: 0x0f0f0f, specular: 0x333333, shininess: 30
+  });
+  const rubber = new THREE.MeshPhongMaterial({
+    color: 0x0a0a0a, specular: 0x111111, shininess: 8
+  });
+
+  // ── Chassis (lower body) ──────────────────────────────────
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.42, 4.7), body);
+  chassis.position.y = 0.44;
+  g.add(chassis);
+
+  // ── Hood ──────────────────────────────────────────────────
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.16, 1.35), body);
+  hood.position.set(0, 0.74, -1.30);
+  g.add(hood);
+
+  // ── Cabin (greenhouse) ────────────────────────────────────
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.52, 2.0), body);
+  cabin.position.set(0, 1.10, 0.05);
+  g.add(cabin);
+
+  // ── Trunk lid ─────────────────────────────────────────────
+  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.14, 1.15), body);
+  trunk.position.set(0, 0.73, 1.42);
+  g.add(trunk);
+
+  // ── A-pillar / windshield ─────────────────────────────────
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.50, 0.04), glass);
+  ws.rotation.x = 0.38;
+  ws.position.set(0, 1.04, -0.92);
+  g.add(ws);
+
+  // ── Rear window ───────────────────────────────────────────
+  const rw = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.44, 0.04), glass);
+  rw.rotation.x = -0.42;
+  rw.position.set(0, 1.02, 1.02);
+  g.add(rw);
+
+  // ── Side windows ──────────────────────────────────────────
+  for (const s of [-1, 1]) {
+    const sw = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.34, 1.55), glass);
+    sw.position.set(s * 0.82, 1.10, 0.05);
+    g.add(sw);
+  }
+
+  // ── Roof panel ────────────────────────────────────────────
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.035, 1.75), trim);
+  roof.position.set(0, 1.375, 0.05);
+  g.add(roof);
+
+  // ── Bumpers ───────────────────────────────────────────────
+  const bGeo = new THREE.BoxGeometry(1.92, 0.22, 0.16);
+  const fb = new THREE.Mesh(bGeo, trim);
+  fb.position.set(0, 0.33, -2.40);
+  g.add(fb);
+  const rb = new THREE.Mesh(bGeo, trim);
+  rb.position.set(0, 0.33, 2.40);
+  g.add(rb);
+
+  // ── Wheel wells + wheels ──────────────────────────────────
+  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.22, 14);
+  const rimGeo   = new THREE.CylinderGeometry(0.20, 0.20, 0.24, 10);
+  const rimMat   = new THREE.MeshPhongMaterial({
+    color: 0x2a2a2a, specular: 0x777777, shininess: 55
+  });
+
+  const wPos = [
+    [-0.88, 0.32, -1.35], [ 0.88, 0.32, -1.35],
+    [-0.88, 0.32,  1.35], [ 0.88, 0.32,  1.35]
+  ];
+  for (const [wx, wy, wz] of wPos) {
+    const wheel = new THREE.Mesh(wheelGeo, rubber);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(wx, wy, wz);
+    g.add(wheel);
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(wx, wy, wz);
+    g.add(rim);
+  }
+
+  // ── Headlights ────────────────────────────────────────────
+  const hlMat = new THREE.MeshBasicMaterial({ color: 0xfff4e0 });
+  for (const sx of [-0.62, 0.62]) {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.07), hlMat);
+    hl.position.set(sx, 0.54, -2.38);
+    g.add(hl);
+  }
+
+  // ── Taillights ────────────────────────────────────────────
+  const tlMat = new THREE.MeshBasicMaterial({ color: 0x880000 });
+  for (const sx of [-0.62, 0.62]) {
+    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.11, 0.06), tlMat);
+    tl.position.set(sx, 0.54, 2.38);
+    g.add(tl);
+  }
+
+  // ── Side mirrors (tiny detail) ────────────────────────────
+  for (const s of [-1, 1]) {
+    const mir = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.08, 0.10), trim
+    );
+    mir.position.set(s * 0.98, 0.88, -0.60);
+    g.add(mir);
+  }
+
+  return g;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  PLAYER
+// ─────────────────────────────────────────────────────────────────────
+
+const playerCar = createSedan(0x1e1e28);
+scene.add(playerCar);
+
+// Player-mounted SpotLights (headlamps illuminate the road ahead)
+function makeHeadlight() {
+  const sl = new THREE.SpotLight(0xfff2da, 180, 90, Math.PI / 7.5, 0.55, 2);
+  sl.target = new THREE.Object3D();
+  scene.add(sl);
+  scene.add(sl.target);
+  return sl;
+}
+const hlL = makeHeadlight();
+const hlR = makeHeadlight();
+
+// Tail-glow (soft red point light)
+const tailGlow = new THREE.PointLight(0x880000, 8, 10, 2);
+scene.add(tailGlow);
+
+// State
+let progress   = 0;           // cumulative distance (never wraps)
+let px         = 0;           // lateral position
+let speed      = BASE_SPEED;
+let prevSpeed  = BASE_SPEED;
+let steer      = 0;           // current steering input [-1, 1]
+let carPitch   = 0;           // nose tilt from accel/brake
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  GHOST SYSTEM — "The Ascending"
+// ─────────────────────────────────────────────────────────────────────
+//  Every completed loop saves a recording of the player's X position,
+//  road-relative Z, and speed for every frame.
+//
+//  When a new loop begins, the previous recording spawns a Ghost.
+//  The Ghost does NOT appear ahead; it slowly "rises" from beneath
+//  the road surface behind the camera, merging smoothly into the
+//  scene over MERGE_FRAMES frames before replaying its path.
+//
+//  Ghosts are identical sedans — same colour, same material.
+//  The only difference is their behaviour.
+// ─────────────────────────────────────────────────────────────────────
+
+const allRecordings    = [];    // completed recordings
+let   currentRecording = [];    // recording in progress
+
+class Ghost {
+  constructor(recording) {
+    this.rec      = recording;
+    this.mesh     = createSedan(0x1e1e28);  // identical to player
+    this.frame    = 0;
+    this.mFrame   = 0;                      // merge progress counter
+    this.merged   = false;
+
+    this.mesh.visible = true;
+    scene.add(this.mesh);
+  }
+
+  /** Smooth-step easing: t² (3 − 2t) */
+  static ease(t) {
+    return t * t * (3 - 2 * t);
+  }
+
+  update(loopBaseZ) {
+    const r = this.rec;
+    if (!r.length) return;
+
+    const f    = r[this.frame % r.length];
+    const rawZ = -(loopBaseZ + f.z);
+
+    // ── Ascending merge ─────────────────────────────────────
+    if (!this.merged) {
+      this.mFrame++;
+      const t  = Math.min(this.mFrame / MERGE_FRAMES, 1);
+      const s  = Ghost.ease(t);
+
+      // Y: rise from below the asphalt to road level
+      const yOff = MERGE_START_Y * (1 - s);
+
+      // Z: start behind the camera, glide forward to true position
+      const zOff = MERGE_START_Z * (1 - s);
+
+      this.mesh.position.set(f.x, yOff, rawZ + zOff);
+
+      if (t >= 1) this.merged = true;
+    } else {
+      // ── Normal replay ─────────────────────────────────────
+      this.mesh.position.set(f.x, 0, rawZ);
+    }
+
+    // Visual steering (derive from consecutive X positions)
+    const nf = r[(this.frame + 1) % r.length];
+    this.mesh.rotation.y = -(nf.x - f.x) * 0.35;
+
+    // Advance playback, loop at end
+    this.frame = (this.frame + 1) % r.length;
+  }
+}
+
+const ghosts = [];
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  OBSTACLE SYSTEM — Procedural Desync
+// ─────────────────────────────────────────────────────────────────────
+//  Obstacles are seeded per loop-index, so each loop has a different
+//  arrangement. A ghost might swerve for an obstacle from its timeline
+//  that no longer exists, or the player encounters one the ghost
+//  drives straight through. All pass-through (no collision).
+// ─────────────────────────────────────────────────────────────────────
+
+const liveObstacles = [];
+
+function seededRNG(seed) {
+  let s = Math.abs(seed) || 1;
+  return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+}
+
+/**
+ * Create a stalled car or debris pile and add to scene.
+ */
+function spawnObstacles(loopNum) {
+  // Remove previous set
+  for (const o of liveObstacles) scene.remove(o.mesh);
+  liveObstacles.length = 0;
+
+  if (loopNum === 0) return;              // first loop is clean
+
+  const rng   = seededRNG(loopNum * 6271 + 43);
+  const count = Math.min(2 + Math.floor(loopNum * 0.6), 7);
+
+  for (let i = 0; i < count; i++) {
+    const ox  = (rng() - 0.5) * (ROAD_WIDTH - 3);
+    const oz  = rng() * (ROAD_LENGTH - 120) + 60;
+
+    let mesh;
+    if (rng() > 0.45) {
+      // ── Stalled vehicle ────────────────────────────────────
+      mesh = createSedan(0x121216);
+      mesh.rotation.y = (rng() - 0.5) * 0.5;
+    } else {
+      // ── Debris cluster ─────────────────────────────────────
+      mesh = new THREE.Group();
+      const dm = new THREE.MeshPhongMaterial({
+        color: 0x181818, specular: 0x1a1a1a, shininess: 8
+      });
+      for (let j = 0; j < 6; j++) {
+        const sz = 0.15 + rng() * 0.7;
+        const bx = new THREE.Mesh(new THREE.BoxGeometry(sz, sz * 0.4, sz), dm);
+        bx.position.set((rng() - 0.5) * 2.5, sz * 0.2, (rng() - 0.5) * 2.5);
+        bx.rotation.set(rng(), rng(), rng());
+        mesh.add(bx);
+      }
+    }
+
+    scene.add(mesh);
+    liveObstacles.push({ mesh, ox, oz });
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  RAIN PARTICLE SYSTEM
+// ─────────────────────────────────────────────────────────────────────
+
+const rainGeo = new THREE.BufferGeometry();
+const rainPos = new Float32Array(RAIN_COUNT * 3);
+const rainVel = new Float32Array(RAIN_COUNT);
+
+for (let i = 0; i < RAIN_COUNT; i++) {
+  rainPos[i * 3]     = (Math.random() - 0.5) * RAIN_SPREAD;
+  rainPos[i * 3 + 1] = Math.random() * RAIN_HEIGHT;
+  rainPos[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD;
+  rainVel[i]         = 0.25 + Math.random() * 0.30;
+}
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+
+const rainMat = new THREE.PointsMaterial({
+  color: 0x606878, size: 0.055, transparent: true, opacity: 0.22
+});
+const rainMesh = new THREE.Points(rainGeo, rainMat);
+scene.add(rainMesh);
+
+function tickRain(anchor) {
+  const p = rainGeo.attributes.position.array;
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    p[i * 3 + 1] -= rainVel[i];          // fall
+    p[i * 3]     += 0.015;               // slight wind
+    p[i * 3 + 2] -= 0.008;
+    if (p[i * 3 + 1] < -0.5) {
+      p[i * 3]     = (Math.random() - 0.5) * RAIN_SPREAD;
+      p[i * 3 + 1] = RAIN_HEIGHT;
+      p[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD;
+    }
+  }
+  rainMesh.position.copy(anchor);
+  rainGeo.attributes.position.needsUpdate = true;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  DYNAMIC CAMERA
+// ─────────────────────────────────────────────────────────────────────
+//  The camera leans into turns (roll), stretches back under
+//  acceleration, and subtly shifts FOV with speed — all smoothly
+//  interpolated to create a physical sense of weight.
+// ─────────────────────────────────────────────────────────────────────
+
+let camRoll = 0;
+let camFov  = 66;
+
+function updateCamera(carPos, spd, str) {
+  const sf = spd / MAX_SPEED;                    // 0..1 speed fraction
+
+  // Ideal position: behind and above
+  const ix = carPos.x * 0.32;
+  const iy = 2.6 + sf * 0.55 + Math.abs(str) * 0.15;
+  const iz = carPos.z + 6.8 + sf * 2.2;
+
+  // Smooth follow (lower rate = more cinematic lag)
+  camera.position.x += (ix - camera.position.x) * 0.055;
+  camera.position.y += (iy - camera.position.y) * 0.045;
+  camera.position.z += (iz - camera.position.z) * 0.055;
+
+  // Look-at (further ahead at higher speed)
+  const la = 22 + sf * 16;
+  camera.lookAt(carPos.x * 0.55, 0.9, carPos.z - la);
+
+  // Roll lean
+  const tr = -str * 0.028;
+  camRoll += (tr - camRoll) * 0.038;
+  camera.rotation.z = camRoll;
+
+  // FOV stretch
+  const tf = 64 + sf * 10;
+  camFov += (tf - camFov) * 0.025;
+  camera.fov = camFov;
+  camera.updateProjectionMatrix();
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  INPUT
+// ─────────────────────────────────────────────────────────────────────
+
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true;  });
+window.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  LOOP TRACKING
+// ─────────────────────────────────────────────────────────────────────
+
+let loopCount   = 0;
+let lastLoopIdx = 0;
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  UTILITY
+// ─────────────────────────────────────────────────────────────────────
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MAIN GAME LOOP
+// ═══════════════════════════════════════════════════════════════════════
+
+let lastT = 0;
+
+spawnObstacles(0);                   // first loop — empty road
+
+function frame(ts) {
+  requestAnimationFrame(frame);
+
+  const dt = Math.min((ts - lastT) / 1000, 0.05);
+  lastT = ts;
+
+  // ── Input ────────────────────────────────────────────────────
+  steer = 0;
+  if (keys['ArrowLeft']  || keys['KeyA']) steer -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) steer += 1;
+
+  prevSpeed = speed;
+  if (keys['ArrowUp'] || keys['KeyW']) {
+    speed = Math.min(MAX_SPEED, speed + ACCEL);
+  } else if (keys['ArrowDown'] || keys['KeyS']) {
+    speed = Math.max(MIN_SPEED, speed - BRAKE);
+  } else {
+    // Passive drag toward cruising speed
+    if (speed > BASE_SPEED)      speed = Math.max(BASE_SPEED, speed - DRAG);
+    else if (speed < BASE_SPEED) speed = Math.min(BASE_SPEED, speed + DRAG * 0.4);
+  }
+
+  // ── Movement ─────────────────────────────────────────────────
+  px += steer * STEER_RATE * (0.4 + speed);
+  px  = Math.max(-MAX_LATERAL, Math.min(MAX_LATERAL, px));
+  progress += speed;
+
+  // ── Record this frame ────────────────────────────────────────
+  currentRecording.push({ x: px, z: progress % ROAD_LENGTH, speed });
+
+  // ── Loop detection (modulo wrap) ─────────────────────────────
+  const curLoop = Math.floor(progress / ROAD_LENGTH);
+  if (curLoop > lastLoopIdx) {
+    loopCount++;
+    lastLoopIdx = curLoop;
+
+    // Archive recording, spawn ghost
+    if (currentRecording.length > 0) {
+      allRecordings.push([...currentRecording]);
+      ghosts.push(new Ghost(allRecordings[allRecordings.length - 1]));
+      currentRecording = [];
+    }
+
+    // New obstacle set for this loop
+    spawnObstacles(loopCount);
+  }
+
+  // ── Positioning ──────────────────────────────────────────────
+  const baseZ = curLoop * ROAD_LENGTH;
+
+  // Player car world position
+  playerCar.position.set(px, 0, -progress);
+  playerCar.rotation.y = -steer * 0.04;
+
+  // Nose pitch from acceleration
+  const accel   = speed - prevSpeed;
+  const tgtPitch = accel * 2.5;
+  carPitch = lerp(carPitch, tgtPitch, 0.10);
+  playerCar.rotation.x = carPitch;
+
+  // Headlights
+  hlL.position.set(px - 0.62, 0.54, -progress - 2.4);
+  hlR.position.set(px + 0.62, 0.54, -progress - 2.4);
+  hlL.target.position.set(px - 1.5, -0.5, -progress - 50);
+  hlR.target.position.set(px + 1.5, -0.5, -progress - 50);
+
+  // Tail glow
+  tailGlow.position.set(px, 0.54, -progress + 2.5);
+
+  // ── Road segment tiling ──────────────────────────────────────
+  const si = Math.floor(progress / ROAD_LENGTH);
+  for (let i = 0; i < 3; i++) {
+    segments[i].position.z = -(si - 1 + i) * ROAD_LENGTH;
+  }
+
+  // ── Street lamps ─────────────────────────────────────────────
+  updateLamps(progress);
+
+  // ── Ghosts ───────────────────────────────────────────────────
+  for (const gh of ghosts) gh.update(baseZ);
+
+  // ── Obstacles ────────────────────────────────────────────────
+  for (const ob of liveObstacles) {
+    ob.mesh.position.z = -(baseZ + ob.oz);
+    ob.mesh.position.x = ob.ox;
+  }
+
+  // ── Rain ─────────────────────────────────────────────────────
+  tickRain(playerCar.position);
+
+  // ── Camera ───────────────────────────────────────────────────
+  updateCamera(playerCar.position, speed, steer);
+
+  // ── Render ───────────────────────────────────────────────────
+  renderer.render(scene, camera);
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
