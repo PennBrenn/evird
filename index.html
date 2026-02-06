@@ -133,7 +133,13 @@ function createSedan(colour){
   s.lineTo(1.65,0.62);s.quadraticCurveTo(1.95,0.52,2.10,0.38);
   s.lineTo(2.10,0.20);s.lineTo(-2.10,0.20);
   const BW=1.70;
-  const bm=new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:BW,bevelEnabled:true,bevelThickness:0.03,bevelSize:0.03,bevelSegments:2,curveSegments:14}),bodyMat);
+  const bodyGeo=new THREE.ExtrudeGeometry(s,{depth:BW,bevelEnabled:true,bevelThickness:0.03,bevelSize:0.03,bevelSegments:2,curveSegments:14});
+  // Inner shell — slightly smaller, dark, prevents seeing through dented outer body
+  const innerMat=new THREE.MeshPhongMaterial({color:0x0a0a0a,specular:0x111111,shininess:10});
+  const innerGeo=new THREE.ExtrudeGeometry(s,{depth:BW-0.06,bevelEnabled:true,bevelThickness:0.01,bevelSize:0.01,bevelSegments:1,curveSegments:14});
+  const inner=new THREE.Mesh(innerGeo,innerMat);inner.rotation.y=-Math.PI/2;inner.position.x=(BW-0.06)/2;inner.scale.setScalar(0.96);inner.position.y=0.01;g.add(inner);
+  // Outer body (damageable)
+  const bm=new THREE.Mesh(bodyGeo,bodyMat);
   bm.rotation.y=-Math.PI/2;bm.position.x=BW/2;g.add(bm);
 
   // Windshield + rear window
@@ -198,7 +204,9 @@ const arrowMesh=new THREE.Mesh(arrowGeo,arrowMat);arrowMesh.visible=false;scene.
 let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,carPitch=0,heading=0;
 
 // Persistent damage state
-let damageLevel=0;const playerBodyMat=playerCar.children[0].material;const ORIGINAL_COLOR=new THREE.Color(0xAA1818);
+let damageLevel=0;const playerBodyMat=playerCar.children[1].material;const ORIGINAL_COLOR=new THREE.Color(0xAA1818);
+// Store original vertex positions for damage reset
+const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice();
 
 // Road spray (mist behind rear wheels)
 const SPRAY_COUNT=80;
@@ -254,14 +262,38 @@ let wrongWayTimer=0;const WRONG_WAY_LIMIT=180; // ~3 seconds at 60fps
 let semiTruck=null;let semiActive=false;let semiZ=0;
 function createSemiTruck(){
   const g=new THREE.Group();
-  const cabMat=new THREE.MeshPhongMaterial({color:0x333333,specular:0x444444,shininess:30});
-  const cab=new THREE.Mesh(new THREE.BoxGeometry(2.4,2.8,3.0),cabMat);cab.position.set(0,1.6,-1.0);g.add(cab);
-  const trailer=new THREE.Mesh(new THREE.BoxGeometry(2.5,3.2,10.0),cabMat);trailer.position.set(0,1.8,4.5);g.add(trailer);
+  const cabMat=new THREE.MeshPhongMaterial({color:0x2a2a2a,specular:0x555555,shininess:40});
+  const trailMat=new THREE.MeshPhongMaterial({color:0x222222,specular:0x333333,shininess:20});
+  const chromeMat2=new THREE.MeshPhongMaterial({color:0x333333,specular:0xaaaaaa,shininess:80});
+  // Cab
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(2.6,2.4,2.8),cabMat);cab.position.set(0,1.5,-1.2);g.add(cab);
+  // Cab roof visor
+  const visor=new THREE.Mesh(new THREE.BoxGeometry(2.7,0.08,0.5),cabMat);visor.position.set(0,2.75,-2.1);g.add(visor);
+  // Windshield
+  const wsMat=new THREE.MeshPhongMaterial({color:0x0a0a18,specular:0x888888,shininess:120,transparent:true,opacity:0.5});
+  const ws=new THREE.Mesh(new THREE.PlaneGeometry(2.3,1.2),wsMat);ws.position.set(0,2.0,-2.62);g.add(ws);
+  // Bumper
+  const bump=new THREE.Mesh(new THREE.BoxGeometry(2.8,0.35,0.20),chromeMat2);bump.position.set(0,0.38,-2.70);g.add(bump);
+  // Grille
+  const grille=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.8,0.08),new THREE.MeshPhongMaterial({color:0x0c0c0c}));grille.position.set(0,0.90,-2.64);g.add(grille);
+  // Trailer
+  const trail=new THREE.Mesh(new THREE.BoxGeometry(2.6,3.0,12.0),trailMat);trail.position.set(0,1.8,5.0);g.add(trail);
+  // Trailer undercarriage
+  const under=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.4,11.5),new THREE.MeshPhongMaterial({color:0x111111}));under.position.set(0,0.22,5.0);g.add(under);
+  // Wheels (3 axles)
+  const wheelMat=new THREE.MeshPhongMaterial({color:0x0a0a0a});
+  for(const wz of[-2.0,9.5,10.5]){for(const sx of[-1.2,1.2]){
+    const wh=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,0.30,10),wheelMat);
+    wh.rotation.z=Math.PI/2;wh.position.set(sx,0.45,wz);g.add(wh);}}
   // Headlights
   const hlM=new THREE.MeshBasicMaterial({color:0xffffff});
-  for(const sx of[-0.8,0.8]){const hl=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.2,0.06),hlM);hl.position.set(sx,1.2,-2.52);g.add(hl);}
-  // Horn light
-  const horn=new THREE.PointLight(0xffffff,200,60,1.5);horn.position.set(0,2,-2.5);g.add(horn);
+  for(const sx of[-0.9,0.9]){const hl=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.22,0.06),hlM);hl.position.set(sx,1.1,-2.66);g.add(hl);}
+  // Headlight beams
+  const hlGlow=new THREE.PointLight(0xffffdd,300,80,1.5);hlGlow.position.set(0,1.5,-3.0);g.add(hlGlow);
+  // Side markers
+  const markerMat=new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.6});
+  for(const mz of[-1.0,3.0,7.0,10.0]){for(const sx of[-1.35,1.35]){
+    const mk=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.06,0.12),markerMat);mk.position.set(sx,0.60,mz);g.add(mk);}}
   g.visible=false;return g;}
 semiTruck=createSemiTruck();scene.add(semiTruck);
 
@@ -284,7 +316,7 @@ function updateSparks(){for(let i=0;i<SPARK_COUNT;i++){if(sparkLife[i]>0){sparkL
 const allRecordings=[];let currentRecording=[];
 class Ghost{constructor(rec){this.rec=rec;this.mesh=createSedan(0x1e1e28);
     // Transfer player's current color (including damage) to ghost
-    this.mesh.children[0].material.color.copy(playerBodyMat.color);
+    this.mesh.children[1].material.color.copy(playerBodyMat.color);
     this.frame=0;this.mFrame=0;this.merged=false;this.creationTime=performance.now();this.mesh.visible=true;scene.add(this.mesh);}
   static ease(t){return t*t*(3-2*t);}
   update(loopBaseZ){const r=this.rec;if(!r.length)return;const f=r[this.frame%r.length],rawZ=-(loopBaseZ+f.z);
@@ -400,6 +432,10 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   loopCount=0;lastLoopIdx=0;cam3I=false;spawnObstacles(0);
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
   damageLevel=0;playerBodyMat.color.copy(ORIGINAL_COLOR);
+  // Reset body mesh geometry to original shape
+  const bPos=playerCar.children[1].geometry.attributes.position;
+  bPos.array.set(origBodyPos);bPos.needsUpdate=true;
+  playerCar.children[1].geometry.computeVertexNormals();
   wrongWayTimer=0;semiActive=false;if(semiTruck)semiTruck.visible=false;
   currentFogDensity=FOG_DENSITY;targetFogDensity=FOG_DENSITY;scene.fog.density=FOG_DENSITY;
   solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;}
@@ -420,8 +456,9 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   else{if(speed>BASE_SPEED)speed=Math.max(BASE_SPEED,speed-DRAG);else if(speed>0&&speed<BASE_SPEED)speed=Math.min(BASE_SPEED,speed+DRAG*0.4);
     else if(speed<0)speed=Math.min(0,speed+DRAG*2);}
 
-  // Steering — speed-dependent, can't turn in place
-  heading-=steer*STEER_SPEED*Math.abs(speed);
+  // Steering — speed-dependent, can't turn in place, inverted when reversing
+  const steerDir=speed>=0?1:-1;
+  heading-=steer*steerDir*STEER_SPEED*Math.abs(speed);
 
   // Movement
   progress+=speed*Math.cos(heading);currentX-=speed*Math.sin(heading);
@@ -440,7 +477,7 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     const dmg=1-damageLevel;
     playerBodyMat.color.setRGB(ORIGINAL_COLOR.r*dmg+0.05*damageLevel,ORIGINAL_COLOR.g*dmg*0.7,ORIGINAL_COLOR.b*dmg*0.7);
     // Physical deformation
-    const geo=playerCar.children[0].geometry;const vPos=geo.attributes.position;
+    const geo=playerCar.children[1].geometry;const vPos=geo.attributes.position;
     const dentStr=0.015+damageLevel*0.02;
     for(let vi=0;vi<vPos.count;vi++){
       if(Math.random()<0.08){
