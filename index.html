@@ -205,7 +205,9 @@ scene.add(playerCar);
 // Headlights — PointLight only, no glow spheres
 function makeHeadlight(){const pl=new THREE.PointLight(0xfff2da,140,500,1.0);scene.add(pl);return pl;}
 const hlL=makeHeadlight(),hlR=makeHeadlight();
-// NO tailGlow PointLight — removed
+// Brake light — dynamic intensity
+const tailGlow=new THREE.PointLight(0xaa0000,3,12,2);scene.add(tailGlow);
+const BRAKE_GLOW_MAX=35,BRAKE_GLOW_IDLE=3;
 
 // Arrow marker (3rd person only) — downward filled arrowhead
 const arrowShape=new THREE.Shape();
@@ -215,6 +217,58 @@ const arrowMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opac
 const arrowMesh=new THREE.Mesh(arrowGeo,arrowMat);arrowMesh.visible=false;scene.add(arrowMesh);
 
 let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,carPitch=0,heading=0;
+
+// Persistent damage state
+let damageLevel=0;const playerBodyMat=playerCar.children[0].material;const ORIGINAL_COLOR=new THREE.Color(0xAA1818);
+
+// Road spray (mist behind rear wheels)
+const SPRAY_COUNT=80;
+const sprayPos=new Float32Array(SPRAY_COUNT*3);const sprayVel=[];const sprayLife=[];
+for(let i=0;i<SPRAY_COUNT;i++){sprayPos[i*3+1]=-100;sprayVel.push({x:0,y:0,z:0});sprayLife.push(0);}
+const sprayGeo=new THREE.BufferGeometry();sprayGeo.setAttribute('position',new THREE.BufferAttribute(sprayPos,3));
+const sprayMat=new THREE.PointsMaterial({color:0x667788,size:0.12,transparent:true,opacity:0.25,depthWrite:false});
+const sprayMesh=new THREE.Points(sprayGeo,sprayMat);scene.add(sprayMesh);
+function emitSpray(cosH,sinH){
+  const absSpd=Math.abs(speed);if(absSpd<0.15)return;
+  const count=Math.floor(absSpd*3);
+  for(const wz of[1.10]){for(const wx of[-0.76,0.76]){
+    for(let k=0;k<count;k++){for(let j=0;j<SPRAY_COUNT;j++){if(sprayLife[j]<=0){
+      const lx=wx*0.8,lz=wz*1.1;
+      sprayPos[j*3]=currentX+lx*cosH+lz*sinH+(Math.random()-0.5)*0.3;
+      sprayPos[j*3+1]=0.05+Math.random()*0.15;
+      sprayPos[j*3+2]=-progress+(-lx*sinH+lz*cosH)+(Math.random()-0.5)*0.3;
+      sprayVel[j]={x:(Math.random()-0.5)*0.02,y:0.01+Math.random()*0.02,z:sinH*absSpd*0.3+cosH*absSpd*0.15+(Math.random()-0.5)*0.04};
+      sprayLife[j]=8+Math.random()*15;break;}}}}}
+}
+function updateSpray(){
+  const absSpd=Math.abs(speed);sprayMat.opacity=Math.min(0.30,absSpd*0.22);
+  for(let i=0;i<SPRAY_COUNT;i++){if(sprayLife[i]>0){sprayLife[i]--;
+    sprayPos[i*3]+=sprayVel[i].x;sprayPos[i*3+1]+=sprayVel[i].y;sprayPos[i*3+2]+=sprayVel[i].z;
+    sprayVel[i].y-=0.001;}else{sprayPos[i*3+1]=-100;}}
+  sprayGeo.attributes.position.needsUpdate=true;}
+
+// Distant landmarks
+const landmarks=[];const landmarkMat=new THREE.MeshPhongMaterial({color:0x0a0a0c,specular:0x111111,shininess:5});
+function createWaterTower(){const g=new THREE.Group();
+  const legs=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.5,8,4),landmarkMat);legs.position.y=4;g.add(legs);
+  const tank=new THREE.Mesh(new THREE.CylinderGeometry(2.5,2.0,3,8),landmarkMat);tank.position.y=9.5;g.add(tank);
+  const cap=new THREE.Mesh(new THREE.ConeGeometry(2.6,1.5,8),landmarkMat);cap.position.y=11.5;g.add(cap);return g;}
+function createBillboard(){const g=new THREE.Group();
+  const p1=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,6,4),landmarkMat);p1.position.set(-1.5,3,0);g.add(p1);
+  const p2=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,6,4),landmarkMat);p2.position.set(1.5,3,0);g.add(p2);
+  const board=new THREE.Mesh(new THREE.BoxGeometry(5,2.5,0.15),landmarkMat);board.position.set(0,7,0);g.add(board);return g;}
+function spawnLandmarks(loopNum){
+  for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
+  const rng=seededRNG(loopNum*3917+11);
+  for(let i=0;i<6;i++){
+    const side=(i%2===0)?1:-1;const dist=25+rng()*40;
+    const z=rng()*ROAD_LENGTH;
+    const lm=rng()>0.5?createWaterTower():createBillboard();
+    lm.position.set(side*dist,0,0);lm.userData.oz=z;
+    scene.add(lm);landmarks.push(lm);}}
+
+// Fog event state
+let targetFogDensity=FOG_DENSITY;let currentFogDensity=FOG_DENSITY;
 
 // ── Spark particles ──────────────────────────────────────────────────
 const SPARK_COUNT=60;
@@ -345,11 +399,15 @@ function triggerCrash(ghostRef){if(crashed)return;crashed=true;
 function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   for(const gh of ghosts)scene.remove(gh.mesh);ghosts.length=0;allRecordings.length=0;currentRecording=[];
   progress=0;currentX=0;heading=0;speed=BASE_SPEED;prevSpeed=BASE_SPEED;steer=0;carPitch=0;
-  loopCount=0;lastLoopIdx=0;cam3I=false;spawnObstacles(0);solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;}
+  loopCount=0;lastLoopIdx=0;cam3I=false;spawnObstacles(0);
+  for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
+  damageLevel=0;playerBodyMat.color.copy(ORIGINAL_COLOR);
+  currentFogDensity=FOG_DENSITY;targetFogDensity=FOG_DENSITY;scene.fog.density=FOG_DENSITY;
+  solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;}
 function lerp(a,b,t){return a+(b-a)*t;}
 
 // ═════════════════════════════════════════════════════════════════════
-let lastT=0;spawnObstacles(0);
+let lastT=0;spawnObstacles(0);spawnLandmarks(0);
 function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/1000,0.05);lastT=ts;
   if(paused||crashed){renderer.setRenderTarget(vhsRT);renderer.setViewport(0,0,vhsRT.width,vhsRT.height);renderer.clear();renderer.render(scene,camera);
     renderer.setRenderTarget(null);renderer.setViewport(0,0,window.innerWidth,window.innerHeight);renderer.clear();vhsShader.uniforms.time.value=ts*0.001;renderer.render(vhsScene,vhsCamera);
@@ -377,7 +435,11 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     if(impact>0.6){speed*=0.08;heading=wallSide*0.15;}  // head-on: near stop
     else if(impact>0.25){speed*=(1-impact*0.9);heading*=0.4;}  // moderate angle
     else{speed*=(1-impact*0.2);heading*=0.90;}  // glancing: light friction
-    wallHit=true;emitSparks(currentX,-progress,wallSide);}
+    wallHit=true;emitSparks(currentX,-progress,wallSide);
+    // Persistent damage — darken body
+    damageLevel=Math.min(damageLevel+0.04,0.6);
+    const dmg=1-damageLevel;
+    playerBodyMat.color.setRGB(ORIGINAL_COLOR.r*dmg+0.05*damageLevel,ORIGINAL_COLOR.g*dmg*0.7,ORIGINAL_COLOR.b*dmg*0.7);}
   updateSparks();
 
   // Record
@@ -387,7 +449,7 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   const curLoop=Math.floor(progress/ROAD_LENGTH);
   if(curLoop>lastLoopIdx){loopCount++;lastLoopIdx=curLoop;
     if(currentRecording.length>0){allRecordings.push([...currentRecording]);ghosts.push(new Ghost(allRecordings[allRecordings.length-1]));currentRecording=[];}
-    spawnObstacles(loopCount);}
+    spawnObstacles(loopCount);spawnLandmarks(loopCount);}
 
   // Position
   const baseZ=curLoop*ROAD_LENGTH,cosH=Math.cos(heading),sinH=Math.sin(heading);
@@ -398,6 +460,15 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   const hlZ=-2.5;
   hlL.position.set(currentX+(-0.46)*cosH+hlZ*sinH,0.25,-progress+(0.46*sinH+hlZ*cosH));
   hlR.position.set(currentX+0.46*cosH+hlZ*sinH,0.25,-progress+(-0.46*sinH+hlZ*cosH));
+
+  // Brake light
+  const braking=keys['ArrowDown']||keys['KeyS'];
+  tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
+  tailGlow.distance=braking?22:12;
+  tailGlow.position.set(currentX+2.0*sinH,0.40,-progress+2.0*cosH);
+
+  // Road spray
+  emitSpray(cosH,sinH);updateSpray();
 
   // Arrow above car (3rd person only)
   arrowMesh.position.set(currentX,1.6,-progress);arrowMesh.rotation.x=-Math.PI/2;arrowMesh.rotation.z=0;
@@ -422,6 +493,16 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   for(let si2=0;si2<NUM_SIGN_SLOTS;si2++){if(Math.abs(roadSigns[si2].position.z-(-progress))<40){nearSign=true;solsEl.textContent=roadSigns[si2].userData.text||'';
     if(!solsEl.classList.contains('sign-mode'))solsEl.classList.add('sign-mode');break;}}
   if(!nearSign&&solsEl.classList.contains('sign-mode'))solsEl.classList.remove('sign-mode');
+
+  // Fog event (100–150 sols)
+  const sols=Math.floor(progress/10);
+  if(sols>=100&&sols<=150)targetFogDensity=0.08;else targetFogDensity=FOG_DENSITY;
+  currentFogDensity+=(targetFogDensity-currentFogDensity)*0.008;
+  scene.fog.density=currentFogDensity;
+
+  // Landmark positioning
+  const baseZLM=curLoop*ROAD_LENGTH;
+  for(const lm of landmarks){lm.position.z=-(baseZLM+lm.userData.oz);}
 
   updateCameraSystem(speed);drawSpeedometer(speed);
 
