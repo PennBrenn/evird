@@ -7,7 +7,7 @@
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
-  canvas { display: block; filter: contrast(1.07) saturate(0.86) brightness(1.02); }
+  canvas { display: block; }
 
   #vignette {
     position: fixed; inset: 0; z-index: 4;
@@ -15,7 +15,6 @@
     background: radial-gradient(ellipse at 50% 48%, transparent 48%, rgba(0,0,0,0.58) 100%);
   }
 
-  /* ── Rearview mirror frame ───────────────────────────────── */
   #mirror-frame {
     position: fixed;
     top: 38px;
@@ -38,16 +37,18 @@
     left: 50%;
     transform: translateX(-50%);
     z-index: 8;
-    color: rgba(150, 145, 135, 0.35);
     font-family: 'Courier New', Courier, monospace;
     font-size: 0.68rem;
     letter-spacing: 0.35em;
     text-transform: uppercase;
     pointer-events: none;
     user-select: none;
-    transition: all 0.4s ease;
+    opacity: 0;
+    color: rgba(255, 255, 255, 0);
+    transition: opacity 0.5s ease, background 0.4s ease, color 0.4s ease;
   }
   #sols.sign-mode {
+    opacity: 1;
     background: rgba(0, 75, 38, 0.88);
     color: rgba(255, 255, 255, 0.92);
     padding: 6px 18px;
@@ -90,7 +91,7 @@
 
 <div id="vignette"></div>
 <div id="mirror-frame"></div>
-<div id="sols">0 sols</div>
+<div id="sols"></div>
 <div id="crash-overlay">
   <span class="msg">Timeline Fractured</span>
   <span class="sols-final"></span>
@@ -101,7 +102,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════
-//  THE EMPTY FREEWAY — Drift Edition
+//  THE EMPTY FREEWAY — VHS Edition
 // ═══════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────
@@ -130,11 +131,11 @@ const DRAG            = 0.0015;
 const MAX_LATERAL     = 6.5;
 
 // Drift physics (gentle, correct direction)
-const DRIFT_STEER     = 0.0012;    // steer input → angular velocity
-const DRIFT_DAMP      = 0.92;      // angular velocity damping
-const DRIFT_GRIP      = 0.06;      // traction recovery
-const DRIFT_SLIDE     = 0.18;      // drift angle → lateral force
-const DRIFT_FRICTION  = 0.94;      // lateral velocity friction
+const DRIFT_STEER     = 0.0012;
+const DRIFT_DAMP      = 0.92;
+const DRIFT_GRIP      = 0.06;
+const DRIFT_SLIDE     = 0.18;
+const DRIFT_FRICTION  = 0.94;
 
 // Ghost merge
 const MERGE_FRAMES    = 520;
@@ -161,17 +162,21 @@ const MIN_OBS_SPACING = ROAD_WIDTH * 2;
 const SIGN_SPACING    = 280;
 const NUM_SIGN_SLOTS  = 5;
 
+// VHS
+const VHS_SCALE       = 0.50;
+
 
 // ─────────────────────────────────────────────────────────────────────
 //  RENDERER, SCENE, CAMERAS
 // ─────────────────────────────────────────────────────────────────────
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(1);
 renderer.toneMapping         = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.76;
 renderer.physicallyCorrectLights = true;
+renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -186,10 +191,102 @@ const mirrorEl  = document.getElementById('mirror-frame');
 
 scene.add(new THREE.AmbientLight(0x14141e, 0.24));
 
+// ── VHS render target ────────────────────────────────────────────────
+const vhsRT = new THREE.WebGLRenderTarget(
+  Math.floor(window.innerWidth * VHS_SCALE),
+  Math.floor(window.innerHeight * VHS_SCALE),
+  { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }
+);
+
+const vhsShader = new THREE.ShaderMaterial({
+  uniforms: {
+    tDiffuse:   { value: vhsRT.texture },
+    time:       { value: 0 },
+    resolution: { value: new THREE.Vector2(vhsRT.width, vhsRT.height) }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    uniform vec2 resolution;
+    varying vec2 vUv;
+
+    float rand(vec2 co) {
+      return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+    }
+
+    void main() {
+      vec2 uv = vUv;
+
+      // ── Tape wobble ──────────────────────────────────────────
+      float wobble = sin(uv.y * 90.0 + time * 3.5) * 0.0008;
+      wobble += sin(uv.y * 220.0 + time * 8.0) * 0.0003;
+
+      // ── Occasional tape glitch band ──────────────────────────
+      float glitchSeed = rand(vec2(floor(time * 3.0), floor(uv.y * 15.0)));
+      float glitchLine = step(0.997, glitchSeed);
+      wobble += glitchLine * (rand(vec2(time, uv.y)) - 0.5) * 0.025;
+
+      uv.x += wobble;
+
+      // ── Chromatic aberration ─────────────────────────────────
+      float aberr = 0.0025 + glitchLine * 0.010;
+      float r = texture2D(tDiffuse, vec2(uv.x + aberr, uv.y)).r;
+      float g = texture2D(tDiffuse, uv).g;
+      float b = texture2D(tDiffuse, vec2(uv.x - aberr, uv.y)).b;
+      vec3 col = vec3(r, g, b);
+
+      // ── Scanlines ────────────────────────────────────────────
+      float scan = sin(vUv.y * resolution.y * 1.8) * 0.07;
+      col -= scan;
+
+      // ── Film grain ───────────────────────────────────────────
+      float grain = (rand(vUv + fract(time * 0.7)) - 0.5) * 0.14;
+      col += grain;
+
+      // ── Tape edge darkening (top/bottom bands) ───────────────
+      float edgeBand = smoothstep(0.0, 0.04, vUv.y) * smoothstep(1.0, 0.96, vUv.y);
+      col *= edgeBand;
+
+      // ── Slight horizontal colour bleed ───────────────────────
+      float bleedR = texture2D(tDiffuse, vec2(uv.x + 0.002, uv.y)).r;
+      col.r = mix(col.r, bleedR, 0.15);
+
+      // ── VHS desaturation + warmth ────────────────────────────
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(lum), col, 0.78);
+      col.r *= 1.05;
+      col.b *= 0.92;
+
+      // ── Vignette ─────────────────────────────────────────────
+      float vig = 1.0 - smoothstep(0.45, 1.5, length((vUv - 0.5) * vec2(1.3, 1.0)));
+      col *= vig * 0.92 + 0.08;
+
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `
+});
+
+const vhsScene  = new THREE.Scene();
+const vhsCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const vhsQuad   = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), vhsShader);
+vhsScene.add(vhsQuad);
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  vhsRT.setSize(
+    Math.floor(window.innerWidth * VHS_SCALE),
+    Math.floor(window.innerHeight * VHS_SCALE)
+  );
+  vhsShader.uniforms.resolution.value.set(vhsRT.width, vhsRT.height);
 });
 
 
@@ -270,7 +367,7 @@ segments.forEach(s => scene.add(s));
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  STREET LAMPS
+//  STREET LAMPS  (PointLight — no cone)
 // ─────────────────────────────────────────────────────────────────────
 
 const lampPostMat  = new THREE.MeshPhongMaterial({ color: 0x252525, specular: 0x333333, shininess: 15 });
@@ -294,12 +391,12 @@ function createLampPost() {
   return g;
 }
 
-const lampPosts = [], lampSpots = [];
+const lampPosts = [], lampLights = [];
 for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
   const post = createLampPost(); scene.add(post); lampPosts.push(post);
-  const spot = new THREE.SpotLight(0xffe0a0, 380, 95, Math.PI / 2.8, 0.82, 1.6);
-  spot.target = new THREE.Object3D();
-  scene.add(spot); scene.add(spot.target); lampSpots.push(spot);
+  const pl = new THREE.PointLight(0xffe0a0, 380, 95, 1.6);
+  scene.add(pl);
+  lampLights.push(pl);
 }
 
 function updateLamps(prog) {
@@ -307,21 +404,17 @@ function updateLamps(prog) {
   for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
     const idx = b + i, z = idx * LAMP_SPACING;
     const side = (idx % 2 === 0) ? 1 : -1;
-    const postX = side * (ROAD_WIDTH / 2 + 2), lightX = side * (ROAD_WIDTH / 2 - 1);
+    const postX = side * (ROAD_WIDTH / 2 + 2);
+    const lightX = side * (ROAD_WIDTH / 2 - 1);
     lampPosts[i].position.set(postX, 0, -z);
     lampPosts[i].scale.x = side;
-    lampSpots[i].position.set(lightX, LAMP_HEIGHT, -z);
-    lampSpots[i].target.position.set(lightX * 0.3, 0, -z);
+    lampLights[i].position.set(lightX, LAMP_HEIGHT - 0.3, -z);
   }
 }
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  SEDAN MODEL
-// ─────────────────────────────────────────────────────────────────────
-//  - Fixed wheel orientation (torus rotation.y, not rotation.z)
-//  - Front wheels steer via wheel group rotation.y
-//  - Headlight glow spheres + taillight glow for mirror visibility
+//  NA MIATA MODEL  (low-profile roadster, pop-up headlights, wheel wells)
 // ─────────────────────────────────────────────────────────────────────
 
 function createSedan(colour) {
@@ -334,22 +427,26 @@ function createSedan(colour) {
   const rubberMat = new THREE.MeshPhongMaterial({ color: 0x080808, specular: 0x0e0e0e, shininess: 6 });
   const chromeMat = new THREE.MeshPhongMaterial({ color: 0x222222, specular: 0x999999, shininess: 90 });
 
-  // ── Extruded body profile ─────────────────────────────────
+  // ── NA Miata side profile ─────────────────────────────────
   const s = new THREE.Shape();
-  s.moveTo(-2.32, 0.22); s.lineTo(-2.32, 0.42);
-  s.quadraticCurveTo(-2.27, 0.60, -1.88, 0.67);
-  s.lineTo(-1.08, 0.72);
-  s.bezierCurveTo(-0.82, 0.73, -0.48, 1.16, -0.22, 1.36);
-  s.bezierCurveTo(-0.02, 1.445, 0.56, 1.45, 0.76, 1.37);
-  s.bezierCurveTo(0.94, 1.22, 1.10, 0.90, 1.28, 0.76);
-  s.lineTo(1.88, 0.71);
-  s.quadraticCurveTo(2.27, 0.60, 2.32, 0.42);
-  s.lineTo(2.32, 0.22); s.lineTo(-2.32, 0.22);
+  s.moveTo(-1.95, 0.20);                                       // front bottom
+  s.lineTo(-1.95, 0.36);                                       // front bumper
+  s.quadraticCurveTo(-1.88, 0.50, -1.62, 0.54);                // nose curves up
+  s.lineTo(-1.22, 0.56);                                       // hood
+  s.quadraticCurveTo(-1.12, 0.72, -0.98, 0.56);                // pop-up headlight bump
+  s.lineTo(-0.48, 0.58);                                       // hood continues
+  s.bezierCurveTo(-0.32, 0.60, -0.12, 0.86, 0.06, 0.98);      // windshield
+  s.lineTo(0.16, 1.02);                                        // windshield top
+  s.bezierCurveTo(0.36, 0.96, 0.56, 0.72, 0.76, 0.62);        // soft-top / roll bar
+  s.lineTo(1.50, 0.58);                                        // rear deck
+  s.quadraticCurveTo(1.80, 0.50, 1.95, 0.36);                  // rear bumper
+  s.lineTo(1.95, 0.20);                                        // rear bottom
+  s.lineTo(-1.95, 0.20);                                       // close
 
-  const BODY_W = 1.84;
+  const BODY_W = 1.60;
   const bodyGeo = new THREE.ExtrudeGeometry(s, {
     depth: BODY_W, bevelEnabled: true,
-    bevelThickness: 0.045, bevelSize: 0.045,
+    bevelThickness: 0.04, bevelSize: 0.04,
     bevelSegments: 3, curveSegments: 16
   });
   const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
@@ -359,56 +456,51 @@ function createSedan(colour) {
 
   // ── Side sills ────────────────────────────────────────────
   for (const sx of [-1, 1]) {
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.06, 3.4), trimMat);
-    sill.position.set(sx * (BODY_W / 2 + 0.01), 0.26, 0);
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 2.8), trimMat);
+    sill.position.set(sx * (BODY_W / 2 + 0.01), 0.24, 0);
     g.add(sill);
   }
 
-  // ── Glass ─────────────────────────────────────────────────
-  const ws = new THREE.Mesh(new THREE.PlaneGeometry(1.52, 0.56), glassMat);
-  ws.rotation.x = 0.44; ws.position.set(0, 1.08, -0.88); g.add(ws);
-  const rw = new THREE.Mesh(new THREE.PlaneGeometry(1.46, 0.46), glassMat);
-  rw.rotation.x = -0.48; rw.position.set(0, 1.05, 0.96); g.add(rw);
+  // ── Windshield ────────────────────────────────────────────
+  const ws = new THREE.Mesh(new THREE.PlaneGeometry(1.28, 0.42), glassMat);
+  ws.rotation.x = 0.52; ws.position.set(0, 0.92, -0.16);
+  g.add(ws);
+
+  // ── Small side windows ────────────────────────────────────
   for (const sx of [-1, 1]) {
-    const swF = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.34), glassMat);
-    swF.rotation.y = sx * Math.PI / 2;
-    swF.position.set(sx * (BODY_W / 2 + 0.025), 1.12, -0.24); g.add(swF);
-    const swR = new THREE.Mesh(new THREE.PlaneGeometry(0.68, 0.32), glassMat);
-    swR.rotation.y = sx * Math.PI / 2;
-    swR.position.set(sx * (BODY_W / 2 + 0.025), 1.11, 0.40); g.add(swR);
+    const sw = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.22), glassMat);
+    sw.rotation.y = sx * Math.PI / 2;
+    sw.position.set(sx * (BODY_W / 2 + 0.02), 0.82, 0.10);
+    g.add(sw);
   }
 
-  // ── Wheels (FIXED orientation: torus rotation.y = π/2) ────
-  const tireGeo  = new THREE.TorusGeometry(0.29, 0.095, 10, 22);
-  const rimGeo   = new THREE.CylinderGeometry(0.21, 0.21, 0.16, 18);
-  const hubGeo   = new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10);
-  const spokeGeo = new THREE.BoxGeometry(0.03, 0.38, 0.03);
+  // ── Wheels (static — no spin) ─────────────────────────────
+  const tireGeo  = new THREE.TorusGeometry(0.27, 0.09, 10, 22);
+  const rimGeo   = new THREE.CylinderGeometry(0.19, 0.19, 0.15, 18);
+  const hubGeo   = new THREE.CylinderGeometry(0.06, 0.06, 0.16, 10);
+  const spokeGeo = new THREE.BoxGeometry(0.025, 0.34, 0.025);
 
   const wPos = [
-    [-0.86, 0.29, -1.36], [0.86, 0.29, -1.36],   // front L, front R
-    [-0.86, 0.29,  1.36], [0.86, 0.29,  1.36]     // rear L, rear R
+    [-0.76, 0.27, -1.10], [0.76, 0.27, -1.10],
+    [-0.76, 0.27,  1.10], [0.76, 0.27,  1.10]
   ];
 
   for (const [wx, wy, wz] of wPos) {
     const wGroup = new THREE.Group();
     wGroup.position.set(wx, wy, wz);
 
-    // Tire — rotation.y orients torus ring into YZ plane (hole along X)
     const tire = new THREE.Mesh(tireGeo, rubberMat);
     tire.rotation.y = Math.PI / 2;
     wGroup.add(tire);
 
-    // Rim — cylinder axis Y → rotation.z puts axis along X
     const rim = new THREE.Mesh(rimGeo, chromeMat);
     rim.rotation.z = Math.PI / 2;
     wGroup.add(rim);
 
-    // Hub
     const hub = new THREE.Mesh(hubGeo, trimMat);
     hub.rotation.z = Math.PI / 2;
     wGroup.add(hub);
 
-    // Spokes — radiate in YZ plane, rotation.x sets angular position
     for (let si = 0; si < 5; si++) {
       const spoke = new THREE.Mesh(spokeGeo, chromeMat);
       spoke.rotation.x = (si / 5) * Math.PI * 2;
@@ -419,87 +511,94 @@ function createSedan(colour) {
     g.userData.wheelGroups.push(wGroup);
   }
 
-  // ── Headlights + glow halos (visible in rearview mirror) ──
+  // ── Wheel well arches ─────────────────────────────────────
+  const wellMat = new THREE.MeshPhongMaterial({ color: 0x020202, specular: 0x000000, shininess: 0 });
+  for (const [wx, wy, wz] of wPos) {
+    const side = wx > 0 ? 1 : -1;
+    // Dark inner arch
+    const archGeo = new THREE.CircleGeometry(0.34, 14, 0, Math.PI);
+    const arch = new THREE.Mesh(archGeo, wellMat);
+    arch.rotation.y = side * Math.PI / 2;
+    arch.position.set(side * (BODY_W / 2 + 0.03), wy + 0.06, wz);
+    g.add(arch);
+    // Fender lip
+    const lipShape = new THREE.Shape();
+    lipShape.absarc(0, 0, 0.38, 0, Math.PI, false);
+    lipShape.absarc(0, 0, 0.33, Math.PI, 0, true);
+    const lip = new THREE.Mesh(new THREE.ShapeGeometry(lipShape), bodyMat);
+    lip.rotation.y = side * Math.PI / 2;
+    lip.position.set(side * (BODY_W / 2 + 0.035), wy + 0.06, wz);
+    g.add(lip);
+  }
+
+  // ── Pop-up headlight housings ─────────────────────────────
   const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  for (const sx of [-0.46, 0.46]) {
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.28), trimMat);
+    housing.position.set(sx, 0.66, -1.10);
+    g.add(housing);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.09, 10), hlMat);
+    lens.position.set(sx, 0.66, -1.26);
+    g.add(lens);
+  }
+
+  // ── Headlight glow halos (visible in rearview mirror) ─────
   const hlGlowMat = new THREE.MeshBasicMaterial({
     color: 0xffffee, transparent: true, opacity: 0.50, depthWrite: false
   });
   const hlGlowOuterMat = new THREE.MeshBasicMaterial({
     color: 0xffeecc, transparent: true, opacity: 0.18, depthWrite: false
   });
-  for (const sx of [-0.56, 0.56]) {
-    const hl = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hlMat
-    );
-    hl.rotation.x = Math.PI / 2;
-    hl.position.set(sx, 0.54, -2.34);
-    g.add(hl);
-    // Inner glow halo — bright, visible in rearview mirror
+  for (const sx of [-0.46, 0.46]) {
     const glow = new THREE.Mesh(new THREE.SphereGeometry(0.65, 8, 6), hlGlowMat);
-    glow.position.set(sx, 0.54, -2.34);
+    glow.position.set(sx, 0.60, -1.96);
     g.add(glow);
-    // Outer glow halo — large soft bloom
     const outerGlow = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), hlGlowOuterMat);
-    outerGlow.position.set(sx, 0.54, -2.34);
+    outerGlow.position.set(sx, 0.60, -1.96);
     g.add(outerGlow);
   }
 
-  // ── Taillights + glow ─────────────────────────────────────
+  // ── Taillights (round, Miata-style) ───────────────────────
   const tlMat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
   const tlGlowMat = new THREE.MeshBasicMaterial({
     color: 0xff1111, transparent: true, opacity: 0.14, depthWrite: false
   });
-  for (const sx of [-0.56, 0.56]) {
-    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.09, 0.04), tlMat);
-    tl.position.set(sx, 0.54, 2.34); g.add(tl);
-    const ref = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.03),
-      new THREE.MeshBasicMaterial({ color: 0x660000 }));
-    ref.position.set(sx, 0.46, 2.34); g.add(ref);
-    // Tail glow halo
-    const tGlow = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 4), tlGlowMat);
-    tGlow.position.set(sx, 0.54, 2.34); g.add(tGlow);
+  for (const sx of [-0.48, 0.48]) {
+    const tl = new THREE.Mesh(new THREE.CircleGeometry(0.08, 10), tlMat);
+    tl.position.set(sx, 0.42, 1.96);
+    g.add(tl);
+    const tGlow = new THREE.Mesh(new THREE.SphereGeometry(0.20, 6, 4), tlGlowMat);
+    tGlow.position.set(sx, 0.42, 1.96);
+    g.add(tGlow);
   }
 
   // ── Chrome bumper strips ──────────────────────────────────
-  const bStripGeo = new THREE.BoxGeometry(1.70, 0.04, 0.03);
+  const bStripGeo = new THREE.BoxGeometry(1.44, 0.035, 0.025);
   const bFront = new THREE.Mesh(bStripGeo, chromeMat);
-  bFront.position.set(0, 0.38, -2.35);
+  bFront.position.set(0, 0.34, -1.96);
   g.add(bFront);
   const bRear = new THREE.Mesh(bStripGeo, chromeMat);
-  bRear.position.set(0, 0.38, 2.35);
+  bRear.position.set(0, 0.34, 1.96);
   g.add(bRear);
 
   // ── Side mirrors ──────────────────────────────────────────
   for (const sx of [-1, 1]) {
-    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.04), trimMat);
-    stem.position.set(sx * 0.98, 0.92, -0.52); g.add(stem);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), chromeMat);
-    head.position.set(sx * 1.06, 0.92, -0.52); g.add(head);
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.035), trimMat);
+    stem.position.set(sx * 0.86, 0.78, -0.28);
+    g.add(stem);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), chromeMat);
+    head.position.set(sx * 0.94, 0.78, -0.28);
+    g.add(head);
   }
 
-  // ── Door seams ────────────────────────────────────────────
+  // ── Door seam (single door per side) ──────────────────────
   for (const sx of [-1, 1]) {
-    for (const dz of [-0.12, 0.78]) {
-      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.40, 0.008), trimMat);
-      seam.position.set(sx * (BODY_W / 2 + 0.025), 0.56, dz); g.add(seam);
-    }
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.30, 0.006), trimMat);
+    seam.position.set(sx * (BODY_W / 2 + 0.02), 0.46, 0.15);
+    g.add(seam);
   }
 
   return g;
-}
-
-/**
- * Spin wheels + steer front pair.
- * Indices 0,1 = front wheels; 2,3 = rear wheels.
- */
-function spinWheels(car, spinAngle, frontSteer) {
-  const wgs = car.userData.wheelGroups;
-  if (!wgs) return;
-  for (let i = 0; i < wgs.length; i++) {
-    wgs[i].rotation.x = spinAngle;
-    if (i < 2) wgs[i].rotation.y = frontSteer || 0;
-    else       wgs[i].rotation.y = 0;
-  }
 }
 
 
@@ -510,12 +609,11 @@ function spinWheels(car, spinAngle, frontSteer) {
 const playerCar = createSedan(0x1e1e28);
 scene.add(playerCar);
 
-// Headlights — VERY far reach
+// Headlights — PointLight (no visible cone)
 function makeHeadlight() {
-  const sl = new THREE.SpotLight(0xfff2da, 480, 520, Math.PI / 7.5, 0.38, 1.3);
-  sl.target = new THREE.Object3D();
-  scene.add(sl); scene.add(sl.target);
-  return sl;
+  const pl = new THREE.PointLight(0xfff2da, 360, 420, 1.4);
+  scene.add(pl);
+  return pl;
 }
 const hlL = makeHeadlight();
 const hlR = makeHeadlight();
@@ -529,7 +627,6 @@ let speed            = BASE_SPEED;
 let prevSpeed        = BASE_SPEED;
 let steer            = 0;
 let carPitch         = 0;
-let playerWheelSpin  = 0;
 let camLagX          = 0;
 
 // Drift state
@@ -552,7 +649,6 @@ class Ghost {
     this.frame     = 0;
     this.mFrame    = 0;
     this.merged    = false;
-    this.wheelSpin = 0;
     this.mesh.visible = true;
     scene.add(this.mesh);
   }
@@ -584,10 +680,6 @@ class Ghost {
       this.mesh.rotation.y = -(nf.x - f.x) * 0.35;
     }
 
-    // Wheel spin + front steer from recording
-    this.wheelSpin += f.speed / WHEEL_R;
-    spinWheels(this.mesh, this.wheelSpin, f.wa || 0);
-
     this.frame = (this.frame + 1) % r.length;
   }
 
@@ -598,7 +690,7 @@ const ghosts = [];
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  OBSTACLE SYSTEM  (more frequent, min spacing enforced)
+//  OBSTACLE SYSTEM
 // ─────────────────────────────────────────────────────────────────────
 
 const liveObstacles = [];
@@ -620,8 +712,7 @@ function spawnObstacles(loopNum) {
 
   const rng   = seededRNG(loopNum * 6271 + 43);
   const count = Math.min(4 + Math.floor(loopNum * 1.4), 18);
-
-  const placed = [];   // Z positions already used
+  const placed = [];
 
   for (let i = 0; i < count; i++) {
     let ox, oz, valid;
@@ -664,7 +755,7 @@ function spawnObstacles(loopNum) {
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  GREEN ROAD SIGNS  (pooled, canvas-textured, with spot illumination)
+//  GREEN ROAD SIGNS  (larger, with spot illumination)
 // ─────────────────────────────────────────────────────────────────────
 
 function makeSignCanvas() {
@@ -677,8 +768,8 @@ function drawSignText(ctx, line1, line2) {
   ctx.fillStyle = '#006633';
   ctx.fillRect(0, 0, 512, 256);
   ctx.strokeStyle = '#cccccc';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(10, 10, 492, 236);
+  ctx.lineWidth = 5;
+  ctx.strokeRect(8, 8, 496, 240);
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -688,7 +779,7 @@ function drawSignText(ctx, line1, line2) {
     ctx.font = '26px Arial, sans-serif';
     ctx.fillText(line2, 256, 168);
   } else {
-    ctx.font = 'bold 42px Arial, sans-serif';
+    ctx.font = 'bold 44px Arial, sans-serif';
     ctx.fillText(line1, 256, 128);
   }
 }
@@ -697,47 +788,50 @@ function createRoadSign() {
   const g = new THREE.Group();
   const poleMat = new THREE.MeshPhongMaterial({ color: 0x606060, specular: 0x444444, shininess: 20 });
 
-  // Vertical pole
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 5.6, 6), poleMat);
-  pole.position.set(0, 2.8, 0);
+  // Tall vertical pole
+  const poleH = 7.5;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.10, poleH, 6), poleMat);
+  pole.position.set(0, poleH / 2, 0);
   g.add(pole);
 
   // Horizontal arm toward road centre
-  const armLen = 2.4;
-  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, armLen, 4), poleMat);
+  const armLen = 3.5;
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, armLen, 4), poleMat);
   arm.rotation.z = Math.PI / 2;
-  arm.position.set(-armLen / 2, 5.4, 0);
+  arm.position.set(-armLen / 2, poleH - 0.2, 0);
   g.add(arm);
 
-  // Sign panel (front face → +Z, facing oncoming car)
+  // Sign panel (large)
+  const panelW = 4.4, panelH = 2.2;
   const canvas = makeSignCanvas();
   const ctx = canvas.getContext('2d');
   drawSignText(ctx, '0 SOLS', '');
   const tex = new THREE.CanvasTexture(canvas);
   const signMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.04 });
-  const panel = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4), signMat);
-  panel.position.set(-armLen + 0.2, 5.4, 0);
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), signMat);
+  panel.position.set(-armLen + 0.6, poleH - 0.2, 0);
   g.add(panel);
 
   // Dark back panel
-  const backMat = new THREE.MeshPhongMaterial({ color: 0x1a1a1a });
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4), backMat);
+  const back = new THREE.Mesh(
+    new THREE.PlaneGeometry(panelW, panelH),
+    new THREE.MeshPhongMaterial({ color: 0x1a1a1a })
+  );
   back.rotation.y = Math.PI;
-  back.position.set(-armLen + 0.2, 5.4, -0.02);
+  back.position.set(-armLen + 0.6, poleH - 0.2, -0.03);
   g.add(back);
 
-  // Two small spotlights illuminating sign face
-  for (const ox of [-0.7, 0.7]) {
-    const sLight = new THREE.SpotLight(0xffffff, 35, 5.5, Math.PI / 4.5, 0.65, 1.8);
+  // Two spotlights illuminating sign face
+  for (const ox of [-1.0, 1.0]) {
+    const sLight = new THREE.SpotLight(0xffffff, 45, 7, Math.PI / 4, 0.65, 1.8);
     const tgt = new THREE.Object3D();
-    tgt.position.set(-armLen + 0.2 + ox, 5.1, 0);
-    sLight.position.set(-armLen + 0.2 + ox, 6.4, -0.35);
+    tgt.position.set(-armLen + 0.6 + ox, poleH - 0.8, 0);
+    sLight.position.set(-armLen + 0.6 + ox, poleH + 1.0, -0.45);
     sLight.target = tgt;
     g.add(sLight); g.add(tgt);
-    // Small fixture housing
-    const fix = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.16),
+    const fix = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 0.18),
       new THREE.MeshPhongMaterial({ color: 0x222222 }));
-    fix.position.set(-armLen + 0.2 + ox, 6.35, -0.3);
+    fix.position.set(-armLen + 0.6 + ox, poleH + 0.95, -0.38);
     g.add(fix);
   }
 
@@ -772,7 +866,7 @@ function updateSignTexture(sign, l1, l2) {
   if (sign.userData.line1 === l1 && sign.userData.line2 === l2) return;
   sign.userData.line1 = l1;
   sign.userData.line2 = l2;
-  sign.userData.text = l2 ? (l1 + '  —  ' + l2) : l1;
+  sign.userData.text = l2 ? (l1 + '  \u2014  ' + l2) : l1;
   drawSignText(sign.userData.ctx, l1, l2);
   sign.userData.texture.needsUpdate = true;
 }
@@ -807,15 +901,14 @@ function updateLampFlicker() {
         fs.active = true;
         fs.timer = 25 + Math.floor(Math.random() * 70);
       }
-      lampSpots[i].intensity = 380;
+      lampLights[i].intensity = 380;
     } else {
       fs.timer--;
       const flick = Math.sin(fs.timer * 0.9 + fs.seed) * Math.sin(fs.timer * 2.3);
-      lampSpots[i].intensity = flick > 0.05 ? 380 : 15;
-      // Also dim the glass glow on the lamp post
+      lampLights[i].intensity = flick > 0.05 ? 380 : 15;
       if (fs.timer <= 0) {
         fs.active = false;
-        lampSpots[i].intensity = 380;
+        lampLights[i].intensity = 380;
       }
     }
   }
@@ -862,7 +955,7 @@ function tickRain(anchor) {
 
 
 // ─────────────────────────────────────────────────────────────────────
-//  DYNAMIC CAMERA  (reacts to drift angle)
+//  DYNAMIC CAMERA
 // ─────────────────────────────────────────────────────────────────────
 
 let camRoll      = 0;
@@ -878,7 +971,6 @@ function updateCamera(carPos, spd, rawSteer, drift) {
 
   camLagX += (carPos.x - camLagX) * 0.022;
 
-  // Lean from drift angle (camera pulls to outside of drift)
   const lean = drift * 0.22;
 
   const ix = camLagX * 0.36 + lean;
@@ -900,7 +992,6 @@ function updateCamera(carPos, spd, rawSteer, drift) {
   _lookTarget.z += (wantLZ - _lookTarget.z) * 0.042;
   camera.lookAt(_lookTarget);
 
-  // Roll with drift
   const tr = -drift * 0.15;
   camRoll += (tr - camRoll) * 0.020;
   camera.rotation.z = camRoll;
@@ -954,11 +1045,12 @@ function restartGame() {
   ghosts.length = 0; allRecordings.length = 0; currentRecording = [];
   progress = 0; currentX = 0; camLagX = 0;
   speed = BASE_SPEED; prevSpeed = BASE_SPEED; steer = 0;
-  carPitch = 0; playerWheelSpin = 0; smoothSteer = 0;
+  carPitch = 0; smoothSteer = 0;
   driftAngle = 0; driftVel = 0; lateralVel = 0;
   loopCount = 0; lastLoopIdx = 0;
   _lookInit = false; camRoll = 0; camFov = 66;
-  spawnObstacles(0); solsEl.textContent = '0 sols';
+  spawnObstacles(0);
+  solsEl.textContent = '';
   solsEl.classList.remove('sign-mode');
 }
 
@@ -977,7 +1069,18 @@ function frame(ts) {
   const dt = Math.min((ts - lastT) / 1000, 0.05);
   lastT = ts;
 
-  if (paused || crashed) { renderer.render(scene, camera); return; }
+  if (paused || crashed) {
+    renderer.setRenderTarget(vhsRT);
+    renderer.setViewport(0, 0, vhsRT.width, vhsRT.height);
+    renderer.clear();
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    renderer.clear();
+    vhsShader.uniforms.time.value = ts * 0.001;
+    renderer.render(vhsScene, vhsCamera);
+    return;
+  }
 
   // ── Input ────────────────────────────────────────────────────
   steer = 0;
@@ -992,7 +1095,7 @@ function frame(ts) {
     else if (speed < BASE_SPEED) speed = Math.min(BASE_SPEED, speed + DRAG * 0.4);
   }
 
-  // ── Drift physics (sign-corrected) ──────────────────────────
+  // ── Drift physics ──────────────────────────────────────────
   driftVel -= steer * DRIFT_STEER * (0.5 + speed * 0.7);
   driftVel *= DRIFT_DAMP;
   driftAngle += driftVel;
@@ -1006,12 +1109,8 @@ function frame(ts) {
 
   progress += speed;
 
-  // ── Wheels ──────────────────────────────────────────────────
-  playerWheelSpin += speed / WHEEL_R;
-  const frontWheelAngle = steer * 0.38 + driftAngle * 0.15;
-  spinWheels(playerCar, playerWheelSpin, frontWheelAngle);
-
   // ── Record ──────────────────────────────────────────────────
+  const frontWheelAngle = steer * 0.38 + driftAngle * 0.15;
   currentRecording.push({
     x: currentX, z: progress % ROAD_LENGTH, speed,
     drift: driftAngle, wa: frontWheelAngle
@@ -1039,12 +1138,10 @@ function frame(ts) {
   carPitch = lerp(carPitch, accel * 2.5, 0.10);
   playerCar.rotation.x = carPitch;
 
-  // Headlights — target very far ahead
-  hlL.position.set(currentX - 0.56, 0.54, -progress - 2.4);
-  hlR.position.set(currentX + 0.56, 0.54, -progress - 2.4);
-  hlL.target.position.set(currentX - 1.8, -0.15, -progress - 340);
-  hlR.target.position.set(currentX + 1.8, -0.15, -progress - 340);
-  tailGlow.position.set(currentX, 0.54, -progress + 2.5);
+  // Headlights — positioned ahead of car (PointLight, no cone)
+  hlL.position.set(currentX - 0.46, 0.55, -progress - 2.0);
+  hlR.position.set(currentX + 0.46, 0.55, -progress - 2.0);
+  tailGlow.position.set(currentX, 0.42, -progress + 2.0);
 
   // ── Road tiling ─────────────────────────────────────────────
   const si = Math.floor(progress / ROAD_LENGTH);
@@ -1077,45 +1174,49 @@ function frame(ts) {
   // ── Rain ────────────────────────────────────────────────────
   tickRain(playerCar.position);
 
-  // ── Sols / sign overlay ────────────────────────────────────
+  // ── Sols / sign overlay (only visible near signs) ──────────
   let nearSign = false;
   for (let si2 = 0; si2 < NUM_SIGN_SLOTS; si2++) {
     const sz = roadSigns[si2].position.z;
     const dist = Math.abs(sz - (-progress));
-    if (dist < 35) {
+    if (dist < 40) {
       nearSign = true;
-      solsEl.textContent = roadSigns[si2].userData.text || Math.floor(progress / 10) + ' sols';
+      solsEl.textContent = roadSigns[si2].userData.text || '';
       if (!solsEl.classList.contains('sign-mode')) solsEl.classList.add('sign-mode');
       break;
     }
   }
   if (!nearSign) {
-    solsEl.textContent = Math.floor(progress / 10) + ' sols';
     if (solsEl.classList.contains('sign-mode')) solsEl.classList.remove('sign-mode');
   }
 
   // ── Camera ──────────────────────────────────────────────────
   updateCamera(playerCar.position, speed, steer, driftAngle);
 
-  // ── Render: main view ───────────────────────────────────────
-  renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+  // ── Render: scene → VHS render target ──────────────────────
+  renderer.setRenderTarget(vhsRT);
+  renderer.setViewport(0, 0, vhsRT.width, vhsRT.height);
+  renderer.clear();
   renderer.render(scene, camera);
 
-  // ── Render: rearview mirror ─────────────────────────────────
+  // ── Render: rearview mirror → VHS render target ────────────
   const mRect = mirrorEl.getBoundingClientRect();
-  const mvX = Math.round(mRect.left);
-  const mvY = Math.round(window.innerHeight - mRect.bottom);
-  const mvW = Math.round(mRect.width);
-  const mvH = Math.round(mRect.height);
+  const vhsScaleX = vhsRT.width / window.innerWidth;
+  const vhsScaleY = vhsRT.height / window.innerHeight;
+  const mvX = Math.round(mRect.left * vhsScaleX);
+  const mvY = Math.round((window.innerHeight - mRect.bottom) * vhsScaleY);
+  const mvW = Math.round(mRect.width * vhsScaleX);
+  const mvH = Math.round(mRect.height * vhsScaleY);
 
   if (mvW > 0 && mvH > 0) {
-    // Position mirror camera at roof level, looking backward
-    mirrorCam.position.set(currentX, 1.28, -progress + 0.2);
+    mirrorCam.position.set(currentX, 1.05, -progress + 0.2);
     mirrorCam.lookAt(currentX + driftAngle * 2.0, 0.85, -progress + 120);
 
-    // Slightly less fog for mirror so headlights behind are more visible
+    // Darker mirror — heavy fog
     const origFog = scene.fog.density;
-    scene.fog.density = FOG_DENSITY * 0.45;
+    const origExposure = renderer.toneMappingExposure;
+    scene.fog.density = FOG_DENSITY * 1.2;
+    renderer.toneMappingExposure = 0.40;
 
     renderer.clearDepth();
     renderer.setViewport(mvX, mvY, mvW, mvH);
@@ -1125,8 +1226,15 @@ function frame(ts) {
     renderer.setScissorTest(false);
 
     scene.fog.density = origFog;
-    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    renderer.toneMappingExposure = origExposure;
   }
+
+  // ── Render: VHS post-process → screen ──────────────────────
+  renderer.setRenderTarget(null);
+  renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+  renderer.clear();
+  vhsShader.uniforms.time.value = ts * 0.001;
+  renderer.render(vhsScene, vhsCamera);
 }
 
 requestAnimationFrame(frame);
