@@ -32,7 +32,9 @@ const LAMP_SPACING=40,LAMP_HEIGHT=9,LAMP_ARM_REACH=3.5,NUM_LAMP_SLOTS=14;
 const FOG_DENSITY=0.03;
 const BASE_SPEED=0.45,MAX_SPEED=3.0,MIN_SPEED=0.08,ACCEL=0.007,BRAKE=0.014,DRAG=0.0015;
 const REVERSE_MAX=-0.4;
-const STEER_SPEED=0.022;
+const STEER_SPEED_LOW=0.035;  // Steering rate at low speeds (sharper)
+const STEER_SPEED_HIGH=0.012; // Steering rate at high speeds (slower)
+const STEER_SMOOTHING=0.15;   // How gradually steering changes (lower = smoother)
 const WALL_INNER=ROAD_WIDTH/2+2-0.85;
 const MERGE_FRAMES=120,MERGE_START_Y=-2.0,MERGE_START_Z=20;
 const RAIN_COUNT=8000,RAIN_SPREAD=72,RAIN_HEIGHT=26,STREAK_LEN=0.25;
@@ -183,10 +185,10 @@ function createSedan(colour){
 }
 
 // ── Player ───────────────────────────────────────────────────────────
-const playerCar=createSedan(0xAA1818); // RED Miata
+const playerCar=createSedan(0xE8E8E8); // WHITE sedan
 scene.add(playerCar);
-// Headlights — PointLight only, no glow spheres
-function makeHeadlight(){const pl=new THREE.PointLight(0xfff2da,1400,500,1.0);scene.add(pl);return pl;}
+// Headlights — PointLight only, no glow spheres — dimmer with longer beam
+function makeHeadlight(){const pl=new THREE.PointLight(0xfff2da,800,800,0.8);scene.add(pl);return pl;}
 const hlL=makeHeadlight(),hlR=makeHeadlight();
 // Brake light — dynamic intensity
 const tailGlow=new THREE.PointLight(0xaa0000,3,12,2);scene.add(tailGlow);
@@ -199,10 +201,10 @@ const arrowGeo=new THREE.ShapeGeometry(arrowShape);
 const arrowMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,side:THREE.DoubleSide,depthWrite:false});
 const arrowMesh=new THREE.Mesh(arrowGeo,arrowMat);arrowMesh.visible=false;scene.add(arrowMesh);
 
-let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,carPitch=0,heading=0;
+let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,currentSteerInput=0,carPitch=0,heading=0;
 
 // Persistent damage state
-let damageLevel=0;const playerBodyMat=playerCar.children[1].material;const ORIGINAL_COLOR=new THREE.Color(0xAA1818);
+let damageLevel=0;const playerBodyMat=playerCar.children[1].material;const ORIGINAL_COLOR=new THREE.Color(0xE8E8E8);
 // Store original vertex positions for damage reset
 const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice();
 
@@ -211,7 +213,7 @@ const SPRAY_COUNT=80;
 const sprayPos=new Float32Array(SPRAY_COUNT*3);const sprayVel=[];const sprayLife=[];
 for(let i=0;i<SPRAY_COUNT;i++){sprayPos[i*3+1]=-100;sprayVel.push({x:0,y:0,z:0});sprayLife.push(0);}
 const sprayGeo=new THREE.BufferGeometry();sprayGeo.setAttribute('position',new THREE.BufferAttribute(sprayPos,3));
-const sprayMat=new THREE.PointsMaterial({color:0x556677,size:0.35,transparent:true,opacity:0.0,depthWrite:false,sizeAttenuation:true});
+const sprayMat=new THREE.PointsMaterial({color:0x556677,size:0.05,transparent:true,opacity:0.0,depthWrite:false,sizeAttenuation:true});
 const sprayMesh=new THREE.Points(sprayGeo,sprayMat);scene.add(sprayMesh);
 function emitSpray(cosH,sinH){
   const absSpd=Math.abs(speed);if(absSpd<0.9)return;
@@ -421,12 +423,18 @@ function triggerCrash(ghostRef){if(crashed)return;crashed=true;
   for(const gh of ghosts)scene.remove(gh.mesh);ghosts.length=0;allRecordings.length=0;
   if(ghostRef&&ghostRef.creationTime){const el=(performance.now()-ghostRef.creationTime)/1000;
     crashMsgEl.textContent='you killed yourself '+String(Math.floor(el/60)).padStart(2,'0')+':'+String(Math.floor(el%60)).padStart(2,'0')+' ago';}
-  else crashMsgEl.textContent='you crashed';
+  else{
+    // Random time between 00:05 and 05:00
+    const randomSeconds=5+Math.floor(Math.random()*(5*60-5));
+    const mins=Math.floor(randomSeconds/60);
+    const secs=randomSeconds%60;
+    crashMsgEl.textContent='you killed yourself '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+' ago';
+  }
   crashOverlay.classList.add('active');}
 
 function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   for(const gh of ghosts)scene.remove(gh.mesh);ghosts.length=0;allRecordings.length=0;currentRecording=[];
-  progress=0;currentX=0;heading=0;speed=BASE_SPEED;prevSpeed=BASE_SPEED;steer=0;carPitch=0;
+  progress=0;currentX=0;heading=0;speed=BASE_SPEED;prevSpeed=BASE_SPEED;steer=0;currentSteerInput=0;carPitch=0;
   loopCount=0;lastLoopIdx=0;cam3I=false;spawnObstacles(0);
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
   damageLevel=0;playerBodyMat.color.copy(ORIGINAL_COLOR);
@@ -446,17 +454,24 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     renderer.setRenderTarget(null);renderer.setViewport(0,0,window.innerWidth,window.innerHeight);renderer.clear();vhsShader.uniforms.time.value=ts*0.001;renderer.render(vhsScene,vhsCamera);
     drawSpeedometer(0);return;}
 
-  // Input
-  steer=0;if(keys['ArrowLeft']||keys['KeyA'])steer=-1;if(keys['ArrowRight']||keys['KeyD'])steer=1;
+  // Input - smooth steering with speed-dependent rate
+  const targetSteer=(keys['ArrowLeft']||keys['KeyA'])?-1:(keys['ArrowRight']||keys['KeyD'])?1:0;
+  currentSteerInput+=(targetSteer-currentSteerInput)*STEER_SMOOTHING;
+  
   prevSpeed=speed;
   if(keys['ArrowUp']||keys['KeyW'])speed=Math.min(MAX_SPEED,speed+ACCEL);
   else if(keys['ArrowDown']||keys['KeyS']){if(speed>0)speed=Math.max(0,speed-BRAKE);else speed=Math.max(REVERSE_MAX,speed-ACCEL*0.6);}
   else{if(speed>BASE_SPEED)speed=Math.max(BASE_SPEED,speed-DRAG);else if(speed>0&&speed<BASE_SPEED)speed=Math.min(BASE_SPEED,speed+DRAG*0.4);
     else if(speed<0)speed=Math.min(0,speed+DRAG*2);}
 
+  // Calculate speed-dependent steering rate
+  const absSpeed=Math.abs(speed);
+  const speedFactor=Math.min(absSpeed/MAX_SPEED,1.0);
+  const steerRate=STEER_SPEED_LOW+(STEER_SPEED_HIGH-STEER_SPEED_LOW)*speedFactor;
+  
   // Steering — speed-dependent, can't turn in place, inverted when reversing
   const steerDir=speed>=0?1:-1;
-  heading-=steer*steerDir*STEER_SPEED*Math.abs(speed);
+  heading-=currentSteerInput*steerDir*steerRate*absSpeed;
 
   // Movement
   progress+=speed*Math.cos(heading);currentX-=speed*Math.sin(heading);
