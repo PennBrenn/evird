@@ -45,6 +45,16 @@
     text-transform: uppercase;
     pointer-events: none;
     user-select: none;
+    transition: all 0.4s ease;
+  }
+  #sols.sign-mode {
+    background: rgba(0, 75, 38, 0.88);
+    color: rgba(255, 255, 255, 0.92);
+    padding: 6px 18px;
+    border: 1.5px solid rgba(255, 255, 255, 0.55);
+    border-radius: 2px;
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
   }
 
   #crash-overlay {
@@ -119,12 +129,12 @@ const DRAG            = 0.0015;
 
 const MAX_LATERAL     = 6.5;
 
-// Drift physics
-const DRIFT_STEER     = 0.0028;    // steer input → angular velocity
-const DRIFT_DAMP      = 0.955;     // angular velocity damping
-const DRIFT_GRIP      = 0.030;     // traction recovery
-const DRIFT_SLIDE     = 0.52;      // drift angle → lateral force
-const DRIFT_FRICTION  = 0.905;     // lateral velocity friction
+// Drift physics (gentle, correct direction)
+const DRIFT_STEER     = 0.0012;    // steer input → angular velocity
+const DRIFT_DAMP      = 0.92;      // angular velocity damping
+const DRIFT_GRIP      = 0.06;      // traction recovery
+const DRIFT_SLIDE     = 0.18;      // drift angle → lateral force
+const DRIFT_FRICTION  = 0.94;      // lateral velocity friction
 
 // Ghost merge
 const MERGE_FRAMES    = 520;
@@ -146,6 +156,10 @@ const WHEEL_R         = 0.29;
 
 // Obstacles
 const MIN_OBS_SPACING = ROAD_WIDTH * 2;
+
+// Road signs
+const SIGN_SPACING    = 280;
+const NUM_SIGN_SLOTS  = 5;
 
 
 // ─────────────────────────────────────────────────────────────────────
@@ -408,7 +422,10 @@ function createSedan(colour) {
   // ── Headlights + glow halos (visible in rearview mirror) ──
   const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const hlGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xffffee, transparent: true, opacity: 0.22, depthWrite: false
+    color: 0xffffee, transparent: true, opacity: 0.50, depthWrite: false
+  });
+  const hlGlowOuterMat = new THREE.MeshBasicMaterial({
+    color: 0xffeecc, transparent: true, opacity: 0.18, depthWrite: false
   });
   for (const sx of [-0.56, 0.56]) {
     const hl = new THREE.Mesh(
@@ -417,10 +434,14 @@ function createSedan(colour) {
     hl.rotation.x = Math.PI / 2;
     hl.position.set(sx, 0.54, -2.34);
     g.add(hl);
-    // Glow halo — big translucent sphere for blinding mirror effect
-    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.40, 8, 6), hlGlowMat);
+    // Inner glow halo — bright, visible in rearview mirror
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.65, 8, 6), hlGlowMat);
     glow.position.set(sx, 0.54, -2.34);
     g.add(glow);
+    // Outer glow halo — large soft bloom
+    const outerGlow = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), hlGlowOuterMat);
+    outerGlow.position.set(sx, 0.54, -2.34);
+    g.add(outerGlow);
   }
 
   // ── Taillights + glow ─────────────────────────────────────
@@ -491,7 +512,7 @@ scene.add(playerCar);
 
 // Headlights — VERY far reach
 function makeHeadlight() {
-  const sl = new THREE.SpotLight(0xfff2da, 700, 350, Math.PI / 6.5, 0.44, 1.5);
+  const sl = new THREE.SpotLight(0xfff2da, 480, 520, Math.PI / 7.5, 0.38, 1.3);
   sl.target = new THREE.Object3D();
   scene.add(sl); scene.add(sl.target);
   return sl;
@@ -643,6 +664,165 @@ function spawnObstacles(loopNum) {
 
 
 // ─────────────────────────────────────────────────────────────────────
+//  GREEN ROAD SIGNS  (pooled, canvas-textured, with spot illumination)
+// ─────────────────────────────────────────────────────────────────────
+
+function makeSignCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  return c;
+}
+
+function drawSignText(ctx, line1, line2) {
+  ctx.fillStyle = '#006633';
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.strokeStyle = '#cccccc';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(10, 10, 492, 236);
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (line2) {
+    ctx.font = 'bold 38px Arial, sans-serif';
+    ctx.fillText(line1, 256, 96);
+    ctx.font = '26px Arial, sans-serif';
+    ctx.fillText(line2, 256, 168);
+  } else {
+    ctx.font = 'bold 42px Arial, sans-serif';
+    ctx.fillText(line1, 256, 128);
+  }
+}
+
+function createRoadSign() {
+  const g = new THREE.Group();
+  const poleMat = new THREE.MeshPhongMaterial({ color: 0x606060, specular: 0x444444, shininess: 20 });
+
+  // Vertical pole
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 5.6, 6), poleMat);
+  pole.position.set(0, 2.8, 0);
+  g.add(pole);
+
+  // Horizontal arm toward road centre
+  const armLen = 2.4;
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, armLen, 4), poleMat);
+  arm.rotation.z = Math.PI / 2;
+  arm.position.set(-armLen / 2, 5.4, 0);
+  g.add(arm);
+
+  // Sign panel (front face → +Z, facing oncoming car)
+  const canvas = makeSignCanvas();
+  const ctx = canvas.getContext('2d');
+  drawSignText(ctx, '0 SOLS', '');
+  const tex = new THREE.CanvasTexture(canvas);
+  const signMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0.04 });
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4), signMat);
+  panel.position.set(-armLen + 0.2, 5.4, 0);
+  g.add(panel);
+
+  // Dark back panel
+  const backMat = new THREE.MeshPhongMaterial({ color: 0x1a1a1a });
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.4), backMat);
+  back.rotation.y = Math.PI;
+  back.position.set(-armLen + 0.2, 5.4, -0.02);
+  g.add(back);
+
+  // Two small spotlights illuminating sign face
+  for (const ox of [-0.7, 0.7]) {
+    const sLight = new THREE.SpotLight(0xffffff, 35, 5.5, Math.PI / 4.5, 0.65, 1.8);
+    const tgt = new THREE.Object3D();
+    tgt.position.set(-armLen + 0.2 + ox, 5.1, 0);
+    sLight.position.set(-armLen + 0.2 + ox, 6.4, -0.35);
+    sLight.target = tgt;
+    g.add(sLight); g.add(tgt);
+    // Small fixture housing
+    const fix = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.16),
+      new THREE.MeshPhongMaterial({ color: 0x222222 }));
+    fix.position.set(-armLen + 0.2 + ox, 6.35, -0.3);
+    g.add(fix);
+  }
+
+  g.userData.canvas = canvas;
+  g.userData.ctx = ctx;
+  g.userData.texture = tex;
+  g.userData.line1 = '';
+  g.userData.line2 = '';
+  g.userData.text = '';
+  return g;
+}
+
+const roadSigns = [];
+for (let i = 0; i < NUM_SIGN_SLOTS; i++) {
+  const s = createRoadSign();
+  scene.add(s);
+  roadSigns.push(s);
+}
+
+function getSignContent(idx) {
+  const type = ((idx % 5) + 5) % 5;
+  switch (type) {
+    case 0: return { l1: Math.floor(progress / 10) + ' SOLS', l2: '' };
+    case 1: return { l1: ghosts.length + (ghosts.length === 1 ? ' GHOST' : ' GHOSTS'), l2: 'ACTIVE ON ROAD' };
+    case 2: return { l1: 'LOOP ' + loopCount, l2: Math.floor(progress / 10) + ' SOLS' };
+    case 3: return { l1: 'NO EXIT', l2: ghosts.length + ' GHOSTS' };
+    case 4: return { l1: Math.floor(progress / 10) + ' SOLS', l2: ghosts.length + ' ECHOES BEHIND' };
+  }
+}
+
+function updateSignTexture(sign, l1, l2) {
+  if (sign.userData.line1 === l1 && sign.userData.line2 === l2) return;
+  sign.userData.line1 = l1;
+  sign.userData.line2 = l2;
+  sign.userData.text = l2 ? (l1 + '  —  ' + l2) : l1;
+  drawSignText(sign.userData.ctx, l1, l2);
+  sign.userData.texture.needsUpdate = true;
+}
+
+function updateSigns(prog) {
+  const base = Math.floor(prog / SIGN_SPACING) - 1;
+  const signX = ROAD_WIDTH / 2 + 2.5;
+  for (let i = 0; i < NUM_SIGN_SLOTS; i++) {
+    const idx = base + i;
+    const z = idx * SIGN_SPACING;
+    roadSigns[i].position.set(signX, 0, -z);
+    const content = getSignContent(idx);
+    updateSignTexture(roadSigns[i], content.l1, content.l2);
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+//  STREET LAMP FLICKER
+// ─────────────────────────────────────────────────────────────────────
+
+const lampFlickerState = [];
+for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
+  lampFlickerState.push({ active: false, timer: 0, seed: Math.random() * 1000 });
+}
+
+function updateLampFlicker() {
+  for (let i = 0; i < NUM_LAMP_SLOTS; i++) {
+    const fs = lampFlickerState[i];
+    if (!fs.active) {
+      if (Math.random() < 0.0015) {
+        fs.active = true;
+        fs.timer = 25 + Math.floor(Math.random() * 70);
+      }
+      lampSpots[i].intensity = 380;
+    } else {
+      fs.timer--;
+      const flick = Math.sin(fs.timer * 0.9 + fs.seed) * Math.sin(fs.timer * 2.3);
+      lampSpots[i].intensity = flick > 0.05 ? 380 : 15;
+      // Also dim the glass glow on the lamp post
+      if (fs.timer <= 0) {
+        fs.active = false;
+        lampSpots[i].intensity = 380;
+      }
+    }
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
 //  RAIN
 // ─────────────────────────────────────────────────────────────────────
 
@@ -699,7 +879,7 @@ function updateCamera(carPos, spd, rawSteer, drift) {
   camLagX += (carPos.x - camLagX) * 0.022;
 
   // Lean from drift angle (camera pulls to outside of drift)
-  const lean = drift * 0.50;
+  const lean = drift * 0.22;
 
   const ix = camLagX * 0.36 + lean;
   const iy = 2.15 + sf * 0.42 + Math.abs(drift) * 0.10;
@@ -721,7 +901,7 @@ function updateCamera(carPos, spd, rawSteer, drift) {
   camera.lookAt(_lookTarget);
 
   // Roll with drift
-  const tr = -drift * 0.50;
+  const tr = -drift * 0.15;
   camRoll += (tr - camRoll) * 0.020;
   camera.rotation.z = camRoll;
 
@@ -779,6 +959,7 @@ function restartGame() {
   loopCount = 0; lastLoopIdx = 0;
   _lookInit = false; camRoll = 0; camFov = 66;
   spawnObstacles(0); solsEl.textContent = '0 sols';
+  solsEl.classList.remove('sign-mode');
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -811,13 +992,13 @@ function frame(ts) {
     else if (speed < BASE_SPEED) speed = Math.min(BASE_SPEED, speed + DRAG * 0.4);
   }
 
-  // ── Drift physics ───────────────────────────────────────────
-  driftVel += steer * DRIFT_STEER * (0.5 + speed * 0.7);
+  // ── Drift physics (sign-corrected) ──────────────────────────
+  driftVel -= steer * DRIFT_STEER * (0.5 + speed * 0.7);
   driftVel *= DRIFT_DAMP;
   driftAngle += driftVel;
   driftAngle *= (1 - DRIFT_GRIP);
 
-  lateralVel += Math.sin(driftAngle) * speed * DRIFT_SLIDE;
+  lateralVel -= Math.sin(driftAngle) * speed * DRIFT_SLIDE;
   lateralVel *= DRIFT_FRICTION;
 
   currentX += lateralVel;
@@ -861,16 +1042,17 @@ function frame(ts) {
   // Headlights — target very far ahead
   hlL.position.set(currentX - 0.56, 0.54, -progress - 2.4);
   hlR.position.set(currentX + 0.56, 0.54, -progress - 2.4);
-  hlL.target.position.set(currentX - 2.5, -0.2, -progress - 200);
-  hlR.target.position.set(currentX + 2.5, -0.2, -progress - 200);
+  hlL.target.position.set(currentX - 1.8, -0.15, -progress - 340);
+  hlR.target.position.set(currentX + 1.8, -0.15, -progress - 340);
   tailGlow.position.set(currentX, 0.54, -progress + 2.5);
 
   // ── Road tiling ─────────────────────────────────────────────
   const si = Math.floor(progress / ROAD_LENGTH);
   for (let i = 0; i < 3; i++) segments[i].position.z = -(si - 1 + i) * ROAD_LENGTH;
 
-  // ── Lamps ───────────────────────────────────────────────────
+  // ── Lamps + flicker ─────────────────────────────────────────
   updateLamps(progress);
+  updateLampFlicker();
 
   // ── Ghosts + collision ──────────────────────────────────────
   const pWZ = -progress;
@@ -889,11 +1071,28 @@ function frame(ts) {
     if (boxesOverlap(currentX, pWZ, ob.ox, ob.mesh.position.z, COL_HX, COL_HZ)) triggerCrash();
   }
 
+  // ── Road signs ──────────────────────────────────────────────
+  updateSigns(progress);
+
   // ── Rain ────────────────────────────────────────────────────
   tickRain(playerCar.position);
 
-  // ── Sols ────────────────────────────────────────────────────
-  solsEl.textContent = Math.floor(progress / 10) + ' sols';
+  // ── Sols / sign overlay ────────────────────────────────────
+  let nearSign = false;
+  for (let si2 = 0; si2 < NUM_SIGN_SLOTS; si2++) {
+    const sz = roadSigns[si2].position.z;
+    const dist = Math.abs(sz - (-progress));
+    if (dist < 35) {
+      nearSign = true;
+      solsEl.textContent = roadSigns[si2].userData.text || Math.floor(progress / 10) + ' sols';
+      if (!solsEl.classList.contains('sign-mode')) solsEl.classList.add('sign-mode');
+      break;
+    }
+  }
+  if (!nearSign) {
+    solsEl.textContent = Math.floor(progress / 10) + ' sols';
+    if (solsEl.classList.contains('sign-mode')) solsEl.classList.remove('sign-mode');
+  }
 
   // ── Camera ──────────────────────────────────────────────────
   updateCamera(playerCar.position, speed, steer, driftAngle);
@@ -916,7 +1115,7 @@ function frame(ts) {
 
     // Slightly less fog for mirror so headlights behind are more visible
     const origFog = scene.fog.density;
-    scene.fog.density = FOG_DENSITY * 0.65;
+    scene.fog.density = FOG_DENSITY * 0.45;
 
     renderer.clearDepth();
     renderer.setViewport(mvX, mvY, mvW, mvH);
