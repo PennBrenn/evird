@@ -552,7 +552,7 @@ const roadSigns=[];for(let i=0;i<NUM_SIGN_SLOTS;i++){const s=createRoadSign();sc
 function getSignContent(idx){const t=((idx%5)+5)%5;switch(t){
   case 0:return{l1:Math.floor(progress/10)+' counts',l2:''};
   case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'there is nobody on this road'};
-  case 2:return{l1:'Loop '+loopCount,l2:Math.floor(progress/10)+' counts'};
+  case 2:return{l1:'progress '+loopCount,l2:Math.floor(progress/10)+' counts'};
   case 3:return{l1:'no exit ahead.',l2:ghosts.length+' iterations.'};
   case 4:return{l1:Math.floor(progress/10)+' counts',l2:ghosts.length+' iterations ahead.'};}}
 function updateSignTexture(sign,l1,l2){if(sign.userData.line1===l1&&sign.userData.line2===l2)return;sign.userData.line1=l1;sign.userData.line2=l2;
