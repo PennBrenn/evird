@@ -143,7 +143,7 @@ function createSedan(colour){
   bm.rotation.y=-Math.PI/2;bm.position.x=BW/2;g.add(bm);
 
   // Windshield + rear window
-  const ws=new THREE.Mesh(new THREE.PlaneGeometry(1.40,0.48),glassMat);ws.rotation.x=0.42;ws.position.set(0,1.02,-0.55);g.add(ws);
+  const ws=new THREE.Mesh(new THREE.PlaneGeometry(10.40,0.48),glassMat);ws.rotation.x=0.42;ws.position.set(0,1.02,-0.55);g.add(ws);
   const rw=new THREE.Mesh(new THREE.PlaneGeometry(1.36,0.38),glassMat);rw.rotation.x=-0.38;rw.position.set(0,0.96,0.80);g.add(rw);
   // Side windows
   for(const sx of[-1,1]){
