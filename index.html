@@ -40,6 +40,7 @@ const MERGE_FRAMES=120,MERGE_START_Y=-2.0,MERGE_START_Z=20;
 const RAIN_COUNT=8000,RAIN_SPREAD=72,RAIN_HEIGHT=26,STREAK_LEN=0.25;
 const COL_HX=0.85,COL_HZ=2.2,WHEEL_R=0.29,MIN_OBS_SPACING=ROAD_WIDTH*2;
 const SIGN_SPACING=100,NUM_SIGN_SLOTS=5,VHS_SCALE=0.50;
+const PED_MIN_INTERVAL=100,PED_MAX_INTERVAL=500; // Pedestrian appears every 100-500 sols
 
 // ── Renderer ─────────────────────────────────────────────────────────
 const renderer=new THREE.WebGLRenderer({antialias:false});
@@ -297,6 +298,75 @@ function createSemiTruck(){
   g.visible=false;return g;}
 semiTruck=createSemiTruck();scene.add(semiTruck);
 
+// ── Pedestrian crossing ──────────────────────────────────────────────
+let pedestrianActive=false;let pedestrianX=0;let pedestrianProgress=0;let nextPedestrianSol=0;
+function createPedestrian(){
+  const g=new THREE.Group();
+  // Pale white humanoid figure
+  const bodyMat=new THREE.MeshPhongMaterial({color:0xf5f5f5,specular:0x888888,shininess:20});
+  // Body
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.25,1.0,8),bodyMat);body.position.y=1.3;g.add(body);
+  // Head
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.22,8,8),bodyMat);head.position.y=2.0;g.add(head);
+  // Arms
+  const armGeo=new THREE.CylinderGeometry(0.08,0.08,0.8,6);
+  const armL=new THREE.Mesh(armGeo,bodyMat);armL.position.set(-0.35,1.3,0);armL.rotation.z=0.3;g.add(armL);
+  const armR=new THREE.Mesh(armGeo,bodyMat);armR.position.set(0.35,1.3,0);armR.rotation.z=-0.3;g.add(armR);
+  // Legs
+  const legGeo=new THREE.CylinderGeometry(0.09,0.09,0.9,6);
+  const legL=new THREE.Mesh(legGeo,bodyMat);legL.position.set(-0.15,0.55,0);g.add(legL);
+  const legR=new THREE.Mesh(legGeo,bodyMat);legR.position.set(0.15,0.55,0);g.add(legR);
+  
+  // Black censoring box
+  const censorMat=new THREE.MeshBasicMaterial({color:0x000000});
+  const censorBox=new THREE.Mesh(new THREE.BoxGeometry(0.8,1.2,0.5),censorMat);
+  censorBox.position.y=1.5;g.add(censorBox);
+  
+  g.visible=false;return g;
+}
+const pedestrian=createPedestrian();scene.add(pedestrian);
+function spawnPedestrian(){
+  const sols=Math.floor(progress/10);
+  if(sols>=nextPedestrianSol&&!pedestrianActive){
+    pedestrianActive=true;
+    // Random side to start from
+    const startSide=Math.random()<0.5?-1:1;
+    pedestrianX=startSide*(ROAD_WIDTH/2+4);
+    pedestrianProgress=0;
+    pedestrian.visible=true;
+    pedestrian.position.set(pedestrianX,0,-progress-20);
+    pedestrian.rotation.y=startSide>0?-Math.PI/2:Math.PI/2;
+    // Schedule next pedestrian
+    nextPedestrianSol=sols+PED_MIN_INTERVAL+Math.floor(Math.random()*(PED_MAX_INTERVAL-PED_MIN_INTERVAL));
+  }
+}
+function updatePedestrian(){
+  if(!pedestrianActive)return;
+  // Walk across the road
+  const crossSpeed=0.015;
+  const dir=Math.sign(Math.cos(pedestrian.rotation.y));
+  pedestrianX+=dir*crossSpeed;
+  pedestrian.position.x=pedestrianX;
+  pedestrian.position.z=-progress-20;
+  pedestrianProgress+=crossSpeed;
+  // Check if crossed the road
+  if(Math.abs(pedestrianX)>ROAD_WIDTH/2+5){
+    pedestrianActive=false;
+    pedestrian.visible=false;
+  }
+  // Collision check
+  if(Math.abs(pedestrianX-currentX)<0.6&&Math.abs(pedestrian.position.z-(-progress))<1.5){
+    // Random time 10:00 to 60:00
+    const randomSeconds=10*60+Math.floor(Math.random()*(50*60));
+    const mins=Math.floor(randomSeconds/60);
+    const secs=randomSeconds%60;
+    crashMsgEl.textContent='you killed yourself '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+' ago';
+    triggerCrash(null);
+    pedestrianActive=false;
+    pedestrian.visible=false;
+  }
+}
+
 // ── Spark particles ──────────────────────────────────────────────────
 const SPARK_COUNT=60;
 const sparkPos=new Float32Array(SPARK_COUNT*3);const sparkVel=[];const sparkLife=[];
@@ -443,6 +513,7 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   bPos.array.set(origBodyPos);bPos.needsUpdate=true;
   playerCar.children[1].geometry.computeVertexNormals();
   wrongWayTimer=0;semiActive=false;if(semiTruck)semiTruck.visible=false;
+  pedestrianActive=false;pedestrian.visible=false;nextPedestrianSol=PED_MIN_INTERVAL+Math.floor(Math.random()*(PED_MAX_INTERVAL-PED_MIN_INTERVAL));
   currentFogDensity=FOG_DENSITY;targetFogDensity=FOG_DENSITY;scene.fog.density=FOG_DENSITY;
   solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;}
 function lerp(a,b,t){return a+(b-a)*t;}
@@ -510,6 +581,10 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     if(Math.abs(semiZ-(-progress))<4&&Math.abs(semiTruck.position.x-currentX)<2.5){
       crashMsgEl.textContent='wrong way';triggerCrash(null);semiActive=false;semiTruck.visible=false;}
     if(semiZ>-progress+30){semiActive=false;semiTruck.visible=false;}}
+
+  // Pedestrian crossing
+  spawnPedestrian();
+  updatePedestrian();
 
   // Record
   currentRecording.push({x:currentX,z:progress%ROAD_LENGTH,speed,drift:heading,wa:0});
