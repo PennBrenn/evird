@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>the only car here is you</title>
+<title>empty highway</title>
 <style>
   *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:none}
@@ -540,7 +540,7 @@ function drawSignText(ctx,l1,l2){ctx.fillStyle='#006633';ctx.fillRect(0,0,512,25
 function createRoadSign(){const g=new THREE.Group(),pM=new THREE.MeshPhongMaterial({color:0x606060,specular:0x444444,shininess:20}),pH=7.5;
   const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.10,pH,6),pM);pole.position.set(0,pH/2,0);g.add(pole);
   const aL=3.5,arm=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,aL,4),pM);arm.rotation.z=Math.PI/2;arm.position.set(-aL/2,pH-0.2,0);g.add(arm);
-  const pW=4.4,pHt=2.2,cv=makeSignCanvas(),cx=cv.getContext('2d');drawSignText(cx,'0 Fathoms','');
+  const pW=4.4,pHt=2.2,cv=makeSignCanvas(),cx=cv.getContext('2d');drawSignText(cx,'0 counts','');
   const tx=new THREE.CanvasTexture(cv),sM=new THREE.MeshStandardMaterial({map:tx,roughness:0.55,metalness:0.04});
   const pan=new THREE.Mesh(new THREE.PlaneGeometry(pW,pHt),sM);pan.position.set(-aL+0.6,pH-0.2,0);g.add(pan);
   const bk=new THREE.Mesh(new THREE.PlaneGeometry(pW,pHt),new THREE.MeshPhongMaterial({color:0x1a1a1a}));bk.rotation.y=Math.PI;bk.position.set(-aL+0.6,pH-0.2,-0.03);g.add(bk);
@@ -550,11 +550,11 @@ function createRoadSign(){const g=new THREE.Group(),pM=new THREE.MeshPhongMateri
   g.userData.canvas=cv;g.userData.ctx=cx;g.userData.texture=tx;g.userData.line1='';g.userData.line2='';g.userData.text='';return g;}
 const roadSigns=[];for(let i=0;i<NUM_SIGN_SLOTS;i++){const s=createRoadSign();scene.add(s);roadSigns.push(s);}
 function getSignContent(idx){const t=((idx%5)+5)%5;switch(t){
-  case 0:return{l1:Math.floor(progress/10)+' Fathoms',l2:''};
-  case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'active on road'};
-  case 2:return{l1:'Loop '+loopCount,l2:Math.floor(progress/10)+' Fathoms'};
+  case 0:return{l1:Math.floor(progress/10)+' counts',l2:''};
+  case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'there is nobody on this road'};
+  case 2:return{l1:'Loop '+loopCount,l2:Math.floor(progress/10)+' counts'};
   case 3:return{l1:'no exit ahead.',l2:ghosts.length+' iterations.'};
-  case 4:return{l1:Math.floor(progress/10)+' Fathoms',l2:ghosts.length+' iterations ahead.'};}}
+  case 4:return{l1:Math.floor(progress/10)+' counts',l2:ghosts.length+' iterations ahead.'};}}
 function updateSignTexture(sign,l1,l2){if(sign.userData.line1===l1&&sign.userData.line2===l2)return;sign.userData.line1=l1;sign.userData.line2=l2;
   sign.userData.text=l2?(l1+'  —  '+l2):l1;drawSignText(sign.userData.ctx,l1,l2);sign.userData.texture.needsUpdate=true;}
 function updateSigns(prog){const base=Math.floor(prog/SIGN_SPACING)-1,sx=ROAD_WIDTH/2+2.5;
@@ -708,7 +708,7 @@ function triggerCrash(ghostRef){if(crashed)return;crashed=true;
     const randomSeconds=5+Math.floor(Math.random()*(5*60-5));
     const mins=Math.floor(randomSeconds/60);
     const secs=randomSeconds%60;
-    crashMsgEl.textContent='you killed yourself '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+' ago';
+    crashMsgEl.textContent='you will kill yourself in '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+'';
   }
   crashOverlay.classList.add('active');}
 
