@@ -59,12 +59,23 @@ document.body.appendChild(renderer.domElement);
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x010102);
 scene.fog=new THREE.Fog(0x010102,20,50);
 const camera=new THREE.PerspectiveCamera(66,window.innerWidth/window.innerHeight,0.1,600);
+camera.layers.enable(0); // Enable default layer for player car visibility
 camera.layers.enable(1);
 camera.layers.enable(2);
 const mirrorCam=new THREE.PerspectiveCamera(58,1,0.5,280);
 mirrorCam.layers.set(0);
 mirrorCam.layers.enable(1);
 const mirrorEl=document.getElementById('mirror-frame');
+
+// CAMERA POSITION CONFIGURATION
+const FIRST_PERSON_OFFSET_X = 0;        // First person camera X offset from car center
+const FIRST_PERSON_OFFSET_Y = 1.6;     // First person camera Y height (raised to prevent car disappearing)
+const FIRST_PERSON_OFFSET_Z = -1.2;     // First person camera Z offset (behind hood)
+const MIRROR_CAM_OFFSET_X = 0.2;        // Mirror camera X offset
+const MIRROR_CAM_OFFSET_Y = 1.05;        // Mirror camera Y height
+const MIRROR_CAM_OFFSET_Z = 0.2;        // Mirror camera Z offset
+const MIRROR_CAM_LOOK_AHEAD = 80;       // Mirror camera look-ahead distance
+
 scene.add(new THREE.AmbientLight(0x14141e,0.24));
 
 // ── VHS ──────────────────────────────────────────────────────────────
@@ -147,24 +158,29 @@ function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i
 
 // ── 3D Model Loader for Mazda NA Miata ──────────────────────────────
 // MIATA MODEL POSITION, SCALE, AND ROTATION CONFIGURATION
-const MIATA_SCALE = 0.01;          // Overall scale of the Miata model (1/6 of previous size)
-const MIATA_POSITION_X = 0.05;    // X position offset (1.5x model size to the right)
-const MIATA_POSITION_Y = 0;         // Y position offset (height)
-const MIATA_POSITION_Z = -0.025;   // Z position offset (back the same amount as model size)
+const MIATA_SCALE = 0.019;          // Overall scale of the Miata model (1/6 of previous size)
+const MIATA_POSITION_X = 1.985;    // X position offset (1.5x model size to the right)
+const MIATA_POSITION_Y = 0.15;         // Y position offset (height)
+const MIATA_POSITION_Z = 2.35;   // Z position offset (back the same amount as model size)
 const MIATA_ROTATION_X = 0;         // X rotation in radians
 const MIATA_ROTATION_Y = Math.PI/2;  // Y rotation in radians (90 degrees counter clockwise)
 const MIATA_ROTATION_Z = 0;         // Z rotation in radians
 
 // LIGHT POSITION CONFIGURATION (adjust these to match your 3D model)
-const HEADLIGHT_LEFT_X = -0.60;   // Left headlight X position
-const HEADLIGHT_RIGHT_X = 0.60;   // Right headlight X position
-const HEADLIGHT_Y = 0.50;         // Headlight Y (height) position
-const HEADLIGHT_Z = -1.80;        // Headlight Z (front) position
+const HEADLIGHT_LEFT_X = -0.55;   // Left headlight X position
+const HEADLIGHT_RIGHT_X = 0.55;   // Right headlight X position
+const HEADLIGHT_Y = 0.65;         // Headlight Y (height) position
+const HEADLIGHT_Z = -1.85;        // Headlight Z (front) position
+const HEADLIGHT_BEAM_DISTANCE = 150; // Headlight beam distance variable (increased for longer reach)
 
-const TAILLIGHT_LEFT_X = -0.55;   // Left taillight X position
-const TAILLIGHT_RIGHT_X = 0.55;   // Right taillight X position
-const TAILLIGHT_Y = 0.45;         // Taillight Y (height) position
-const TAILLIGHT_Z = 2.00;         // Taillight Z (rear) position
+const TAILLIGHT_LEFT_X = -0.6;   // Left taillight X position
+const TAILLIGHT_RIGHT_X = 0.6;   // Right taillight X position
+const TAILLIGHT_Y = 0.7;         // Taillight Y (height) position
+const TAILLIGHT_Z = 2;         // Taillight Z (rear) position
+const TAILLIGHT_LEFT_ROTATION_X = -0.13;  // Left taillight X rotation in radians
+const TAILLIGHT_RIGHT_ROTATION_X = -0.13; // Right taillight X rotation in radians
+const TAILLIGHT_LEFT_ROTATION_Y = -0.35;  // Left taillight Y rotation in radians
+const TAILLIGHT_RIGHT_ROTATION_Y = 0.35; // Right taillight Y rotation in radians
 
 const gltfLoader = new THREE.GLTFLoader();
 let miataModelCache = null;
@@ -251,23 +267,27 @@ function createSedan(colour){
 
 function setupLightsAndWheels(g){
   // Add visual headlight markers
-  const hlMat=new THREE.MeshBasicMaterial({color:0xffffdd});
-  const hlL=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.12,0.06),hlMat);
+  const hlMat=new THREE.MeshBasicMaterial({color:0xffffdd});  // Bright yellow headlights
+  const hlL=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.12),hlMat);  // Square headlights
   hlL.position.set(HEADLIGHT_LEFT_X,HEADLIGHT_Y,HEADLIGHT_Z);
   g.add(hlL);
   
-  const hlR=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.12,0.06),hlMat);
+  const hlR=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.12),hlMat);  // Square headlights
   hlR.position.set(HEADLIGHT_RIGHT_X,HEADLIGHT_Y,HEADLIGHT_Z);
   g.add(hlR);
   
   // Add visual taillight markers
-  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333,emissive:0xff0000,emissiveIntensity:1.0});
+  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333,emissive:0xff0000,emissiveIntensity:1.0});  // Bright red taillights
   const tlL=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.10,0.04),tlMat);
   tlL.position.set(TAILLIGHT_LEFT_X,TAILLIGHT_Y,TAILLIGHT_Z);
+  tlL.rotation.x = TAILLIGHT_LEFT_ROTATION_X;
+  tlL.rotation.y = TAILLIGHT_LEFT_ROTATION_Y;
   g.add(tlL);
   
   const tlR=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.10,0.04),tlMat);
   tlR.position.set(TAILLIGHT_RIGHT_X,TAILLIGHT_Y,TAILLIGHT_Z);
+  tlR.rotation.x = TAILLIGHT_RIGHT_ROTATION_X;
+  tlR.rotation.y = TAILLIGHT_RIGHT_ROTATION_Y;
   g.add(tlR);
   
   // Create wheel groups if model doesn't have them
@@ -296,11 +316,11 @@ function setupLightsAndWheels(g){
 // ── Player ───────────────────────────────────────────────────────────
 const playerCar=createSedan(0xFF0000);
 scene.add(playerCar);
-playerCar.traverse(c=>{if(c.isMesh){c.layers.set(2);}});
+playerCar.traverse(c=>{if(c.isMesh){c.layers.set(0);}}); // Set player car to default layer for visibility
 
-function makeHeadlight(){const pl=new THREE.PointLight(0xfff2da,800,120,1.2);scene.add(pl);return pl;}
+function makeHeadlight(){const pl=new THREE.SpotLight(0xfff2da,200,300,Math.PI/4,0.3,2.0);scene.add(pl);return pl;} // NOTE: Make brighter by increasing intensity (currently 200, was 800) - Wider angle, brighter beam
 const hlL=makeHeadlight(),hlR=makeHeadlight();
-const tailGlow=new THREE.PointLight(0xaa0000,3,12,2);scene.add(tailGlow);
+const tailGlow=new THREE.PointLight(0xaa0000,1,12,2);scene.add(tailGlow); // NOTE: Make brighter by increasing intensity (currently 1, was 3) - Centered taillights
 const BRAKE_GLOW_MAX=35,BRAKE_GLOW_IDLE=3;
 
 const arrowShape=new THREE.Shape();
@@ -621,7 +641,7 @@ function isInsideTunnel(prog){
 
 // ── Procedural terrain ──────────────────────────────────────────
 const terrainChunks=[];const NUM_TERRAIN_CHUNKS=6;const TERRAIN_CHUNK_LEN=200;
-const terrainMat=new THREE.MeshPhongMaterial({color:0x0a0a0c,specular:0x080808,shininess:3,flatShading:true});
+const terrainMat=new THREE.MeshPhongMaterial({color:0x2a2a2c,specular:0x080808,shininess:3,flatShading:true}); // Made terrain brighter
 function createTerrainChunk(seed){
   const rng=seededRNG(seed);
   const g=new THREE.Group();
@@ -638,6 +658,7 @@ function createTerrainChunk(seed){
     geo.computeVertexNormals();
     const m=new THREE.Mesh(geo,terrainMat);
     m.position.set(side>0?xOff+width/2:xOff-width/2,-0.3,-TERRAIN_CHUNK_LEN/2);
+    m.traverse(c=>{if(c.isMesh){c.layers.set(0);}}); // Set terrain to default layer
     g.add(m);
   }
   return g;
@@ -792,17 +813,6 @@ function cycleCamera(){
 function updateCameraSystem(spd){
   const cosH=Math.cos(heading),sinH=Math.sin(heading),sf=Math.abs(spd)/MAX_SPEED;
   
-  // TEMPORARY: Camera rotation for model positioning (TO BE DELETED)
-  if(isRotatingCamera){
-    cameraRotationAngle += 0.02; // Auto-rotate around car
-    const rotX = currentX + Math.cos(cameraRotationAngle) * cameraRotationRadius;
-    const rotZ = -progress + Math.sin(cameraRotationAngle) * cameraRotationRadius;
-    camera.position.set(rotX, cameraRotationHeight, rotZ);
-    camera.lookAt(currentX, 0, -progress);
-    camera.near=0.15;camera.fov=76;camera.updateProjectionMatrix();
-    return; // Skip normal camera updates when rotating
-  }
-  
   // Smooth mouse look with lerp (both modes)
   mouseLookYaw+=(targetYaw-mouseLookYaw)*LOOK_LERP;
   mouseLookPitch+=(targetPitch-mouseLookPitch)*LOOK_LERP;
@@ -810,11 +820,10 @@ function updateCameraSystem(spd){
     playerCar.visible=true;arrowMesh.visible=false;
     
     // First person: camera on hood, car visible
-    const hoodX=0,hoodZ=-1.6;
     camera.position.set(
-      currentX+hoodX*cosH+hoodZ*sinH,
-      1.15,
-      -progress+(-hoodX*sinH+hoodZ*cosH)
+      currentX+FIRST_PERSON_OFFSET_X*cosH+FIRST_PERSON_OFFSET_Z*sinH,
+      FIRST_PERSON_OFFSET_Y,
+      -progress+(-FIRST_PERSON_OFFSET_X*sinH+FIRST_PERSON_OFFSET_Z*cosH)
     );
     
     // Look direction with mouse offset
@@ -825,7 +834,7 @@ function updateCameraSystem(spd){
     const pitchedY=1.0+Math.sin(-mouseLookPitch)*15;
     
     camera.lookAt(lookX,pitchedY,lookZ);
-    camera.near=0.15;camera.fov=76;camera.updateProjectionMatrix();
+    camera.near=0.01;camera.fov=76;camera.updateProjectionMatrix(); // Reduced near plane to prevent car disappearing
   }else{
     playerCar.visible=true;arrowMesh.visible=true;
     // Third person: semi-locked behind car with lazy heading follow
@@ -879,23 +888,11 @@ function drawSpeedometer(spd){
 // ── Input ────────────────────────────────────────────────────────────
 const keys={};
 
-// TEMPORARY: Camera rotation for model positioning (TO BE DELETED)
-let cameraRotationAngle = 0;
-let cameraRotationRadius = 3;
-let cameraRotationHeight = 1.5;
-let isRotatingCamera = false;
-
 window.addEventListener('keydown',e=>{
   keys[e.code]=true;
   if(e.code==='KeyP'&&!e.repeat)togglePause();
   if(e.code==='KeyR'&&crashed)restartGame();
   if(e.code==='KeyC'&&!e.repeat&&!crashed)cycleCamera();
-  
-  // TEMPORARY: Toggle camera rotation with 'T' key (TO BE DELETED)
-  if(e.code==='KeyT'&&!e.repeat){
-    isRotatingCamera = !isRotatingCamera;
-    console.log('Camera rotation for model positioning:', isRotatingCamera ? 'ON' : 'OFF');
-  }
 });
 window.addEventListener('keyup',e=>{keys[e.code]=false;});
 
@@ -1027,7 +1024,7 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     const mvXP=Math.round(mRP.left*vsXP),mvYP=Math.round((window.innerHeight-mRP.bottom)*vsYP),mvWP=Math.round(mRP.width*vsXP),mvHP=Math.round(mRP.height*vsYP);
     if(mvWP>0&&mvHP>0){
       mirrorCam.aspect=mRP.width/Math.max(1,mRP.height);mirrorCam.updateProjectionMatrix();
-      mirrorCam.position.set(currentX+0.2*sinHP,1.05,-progress+0.2*cosHP);mirrorCam.lookAt(currentX+sinHP*80,0.85,-progress+cosHP*80);
+      mirrorCam.position.set(currentX+MIRROR_CAM_OFFSET_X*sinHP,MIRROR_CAM_OFFSET_Y,-progress+MIRROR_CAM_OFFSET_Z*cosHP);mirrorCam.lookAt(currentX+sinHP*MIRROR_CAM_LOOK_AHEAD,0.85,-progress+cosHP*MIRROR_CAM_LOOK_AHEAD);
       const oFP=scene.fog.far,oEP=renderer.toneMappingExposure;scene.fog.far=40;renderer.toneMappingExposure=0.40;
       renderer.clearDepth();renderer.setViewport(mvXP,mvYP,mvWP,mvHP);renderer.setScissor(mvXP,mvYP,mvWP,mvHP);renderer.setScissorTest(true);
       renderer.render(scene,mirrorCam);renderer.setScissorTest(false);scene.fog.far=oFP;renderer.toneMappingExposure=oEP;
@@ -1134,13 +1131,24 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   
   hlL.position.set(currentX+HEADLIGHT_LEFT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_LEFT_X*sinH+HEADLIGHT_Z*cosH));
   hlR.position.set(currentX+HEADLIGHT_RIGHT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_RIGHT_X*sinH+HEADLIGHT_Z*cosH));
+  
+  // Set spotlight targets to cast cone beams forward and downward
+  const targetL = new THREE.Object3D();
+  const targetR = new THREE.Object3D();
+  targetL.position.set(currentX+HEADLIGHT_LEFT_X*cosH+(HEADLIGHT_Z-HEADLIGHT_BEAM_DISTANCE)*sinH,HEADLIGHT_Y-2,-progress+(-HEADLIGHT_LEFT_X*sinH+(HEADLIGHT_Z-HEADLIGHT_BEAM_DISTANCE)*cosH));
+  targetR.position.set(currentX+HEADLIGHT_RIGHT_X*cosH+(HEADLIGHT_Z-HEADLIGHT_BEAM_DISTANCE)*sinH,HEADLIGHT_Y-2,-progress+(-HEADLIGHT_RIGHT_X*sinH+(HEADLIGHT_Z-HEADLIGHT_BEAM_DISTANCE)*cosH));
+  hlL.target = targetL;
+  hlR.target = targetR;
+  scene.add(targetL);
+  scene.add(targetR);
+  
   hlL.intensity=hlIntensity;
   hlR.intensity=hlIntensity;
 
   const braking=keys['ArrowDown']||keys['KeyS'];
   tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
   tailGlow.distance=braking?22:12;
-  tailGlow.position.set(currentX+2.0*sinH,0.40,-progress+2.0*cosH);
+  tailGlow.position.set(currentX+TAILLIGHT_Z*sinH,TAILLIGHT_Y,-progress+TAILLIGHT_Z*cosH); // Centered taillights using taillight position variables
 
   emitSpray(cosH,sinH);updateSpray();
 
@@ -1241,7 +1249,7 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   renderer.setRenderTarget(vhsRT);renderer.setViewport(0,0,vhsRT.width,vhsRT.height);renderer.clear();renderer.render(scene,camera);
   const mR=mirrorEl.getBoundingClientRect(),vsX=vhsRT.width/window.innerWidth,vsY=vhsRT.height/window.innerHeight;
   const mvX=Math.round(mR.left*vsX),mvY=Math.round((window.innerHeight-mR.bottom)*vsY),mvW=Math.round(mR.width*vsX),mvH=Math.round(mR.height*vsY);
-  if(mvW>0&&mvH>0){mirrorCam.aspect=mR.width/Math.max(1,mR.height);mirrorCam.updateProjectionMatrix();mirrorCam.position.set(currentX+0.2*sinH,1.05,-progress+0.2*cosH);mirrorCam.lookAt(currentX+sinH*80,0.85,-progress+cosH*80);
+  if(mvW>0&&mvH>0){mirrorCam.aspect=mR.width/Math.max(1,mR.height);mirrorCam.updateProjectionMatrix();mirrorCam.position.set(currentX+MIRROR_CAM_OFFSET_X*sinH,MIRROR_CAM_OFFSET_Y,-progress+MIRROR_CAM_OFFSET_Z*cosH);mirrorCam.lookAt(currentX+sinH*MIRROR_CAM_LOOK_AHEAD,0.85,-progress+cosH*MIRROR_CAM_LOOK_AHEAD);
     const oF=scene.fog.far,oE=renderer.toneMappingExposure;scene.fog.far=40;renderer.toneMappingExposure=0.40;
     renderer.clearDepth();renderer.setViewport(mvX,mvY,mvW,mvH);renderer.setScissor(mvX,mvY,mvW,mvH);renderer.setScissorTest(true);
     renderer.render(scene,mirrorCam);renderer.setScissorTest(false);scene.fog.far=oF;renderer.toneMappingExposure=oE;}
