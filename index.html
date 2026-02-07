@@ -147,12 +147,12 @@ function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i
 
 // ── 3D Model Loader for Mazda NA Miata ──────────────────────────────
 // MIATA MODEL POSITION, SCALE, AND ROTATION CONFIGURATION
-const MIATA_SCALE = 0.08;           // Overall scale of the Miata model
+const MIATA_SCALE = 0.025;          // Overall scale of the Miata model (1/3 of previous size)
 const MIATA_POSITION_X = 0;         // X position offset
 const MIATA_POSITION_Y = 0;         // Y position offset (height)
 const MIATA_POSITION_Z = 0;         // Z position offset
 const MIATA_ROTATION_X = 0;         // X rotation in radians
-const MIATA_ROTATION_Y = 0;         // Y rotation in radians  
+const MIATA_ROTATION_Y = Math.PI/2;  // Y rotation in radians (90 degrees counter clockwise)
 const MIATA_ROTATION_Z = 0;         // Z rotation in radians
 
 // LIGHT POSITION CONFIGURATION (adjust these to match your 3D model)
@@ -294,7 +294,7 @@ function setupLightsAndWheels(g){
 }
 
 // ── Player ───────────────────────────────────────────────────────────
-const playerCar=createSedan(0xE8E8E8);
+const playerCar=createSedan(0xFF0000);
 scene.add(playerCar);
 playerCar.traverse(c=>{if(c.isMesh){c.layers.set(2);}});
 
