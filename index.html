@@ -146,6 +146,15 @@ function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i
     if(fs.timer<=0){fs.active=false;lampLights[i].intensity=380;}}}}
 
 // ── 3D Model Loader for Mazda NA Miata ──────────────────────────────
+// MIATA MODEL POSITION, SCALE, AND ROTATION CONFIGURATION
+const MIATA_SCALE = 0.08;           // Overall scale of the Miata model
+const MIATA_POSITION_X = 0;         // X position offset
+const MIATA_POSITION_Y = 0;         // Y position offset (height)
+const MIATA_POSITION_Z = 0;         // Z position offset
+const MIATA_ROTATION_X = 0;         // X rotation in radians
+const MIATA_ROTATION_Y = 0;         // Y rotation in radians  
+const MIATA_ROTATION_Z = 0;         // Z rotation in radians
+
 // LIGHT POSITION CONFIGURATION (adjust these to match your 3D model)
 const HEADLIGHT_LEFT_X = -0.60;   // Left headlight X position
 const HEADLIGHT_RIGHT_X = 0.60;   // Right headlight X position
@@ -190,8 +199,9 @@ function createSedan(colour){
       const model=gltf.scene;
       
       // Scale and position the model to match game scale
-      model.scale.setScalar(0.5);  // Adjust scale as needed
-      model.position.y=0;
+      model.scale.setScalar(MIATA_SCALE);
+      model.position.set(MIATA_POSITION_X, MIATA_POSITION_Y, MIATA_POSITION_Z);
+      model.rotation.set(MIATA_ROTATION_X, MIATA_ROTATION_Y, MIATA_ROTATION_Z);
       
       // Apply color to body parts
       model.traverse(child=>{
