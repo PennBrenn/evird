@@ -8,103 +8,41 @@
   *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:none}
   canvas{display:block}
-  
-  /* UI LAYERS */
   #vignette{position:fixed;inset:0;z-index:4;pointer-events:none;background:radial-gradient(ellipse at 50% 48%,transparent 48%,rgba(0,0,0,0.58) 100%)}
-  
-  /* Mirror Frame CSS (Was missing in original) */
-  #mirror-frame {
-    position: fixed;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 200px; /* Width for the mirror render */
-    height: 60px; /* Height for the mirror render */
-    z-index: 5;
-    border: 2px solid #222;
-    background: #000;
-    pointer-events: none;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-  }
-
-  #sols{position:fixed;top:90px;left:50%;transform:translateX(-50%);z-index:8;font-family:'Courier New',monospace;font-size:0.68rem;letter-spacing:0.35em;pointer-events:none;user-select:none;opacity:0;color:rgba(255,255,255,0);transition:opacity 0.5s ease,background 0.4s ease,color 0.4s ease}
+  #sols{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:8;font-family:'Courier New',monospace;font-size:0.68rem;letter-spacing:0.35em;pointer-events:none;user-select:none;opacity:0;color:rgba(255,255,255,0);transition:opacity 0.5s ease,background 0.4s ease,color 0.4s ease}
   #sols.sign-mode{opacity:1;background:rgba(0,75,38,0.88);color:rgba(255,255,255,0.92);padding:6px 18px;border:1.5px solid rgba(255,255,255,0.55);border-radius:2px;font-size:0.72rem;letter-spacing:0.22em}
-  
   #crash-overlay{position:fixed;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000;pointer-events:none}
   #crash-overlay.active{display:flex}
   #crash-overlay .msg{color:rgba(170,165,155,0.88);font-family:'Courier New',monospace;font-size:1.05rem;letter-spacing:0.25em}
   #crash-overlay .restart{color:rgba(120,115,105,0.40);font-family:'Courier New',monospace;font-size:0.55rem;letter-spacing:0.2em;margin-top:12px}
-  
   #speedo{position:fixed;bottom:18px;right:18px;z-index:8;width:110px;height:110px;pointer-events:none;opacity:0.75}
-  
   #vhs-timestamp{position:fixed;bottom:12px;left:16px;z-index:8;font-family:'Courier New',monospace;font-size:0.85rem;color:rgba(255,255,255,0.65);pointer-events:none;user-select:none;letter-spacing:0.08em;text-shadow:1px 1px 2px rgba(0,0,0,0.8)}
-
-  /* Controls Overlay */
-  #controls {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 20;
-    color: rgba(255,255,255,0.8);
-    font-family: 'Courier New', monospace;
-    text-align: center;
-    pointer-events: none;
-    transition: opacity 1s ease;
-  }
-  #controls.hidden { opacity: 0; }
-  .key { border: 1px solid #fff; padding: 2px 6px; margin: 0 2px; display: inline-block; }
-
-  /* Censor Overlay Container (Topmost Layer) */
-  #censor-container {
-    position: fixed;
-    inset: 0;
-    z-index: 30; /* Above everything */
-    pointer-events: none;
-    overflow: hidden;
-  }
-  .censor-box {
-    position: absolute;
-    background: #000;
-    z-index: 31;
-  }
 </style>
 </head>
+ <script> 
 <body>
-
 <div id="vignette"></div>
 <div id="mirror-frame"></div>
 <div id="sols"></div>
-<div id="controls">
-  <p>WASD / ARROWS to Drive</p>
-  <p>MOUSE to Look</p>
-  <p><span class="key">C</span> Change Camera</p>
-  <p><span class="key">P</span> Pause / <span class="key">R</span> Restart</p>
-</div>
 <canvas id="speedo" width="160" height="160"></canvas>
-<div id="vhs-timestamp">REC ● 00:00:00</div>
+<div id="vhs-timestamp">REC ●</div>
 <div id="crash-overlay"><span class="msg"></span><span class="restart">press r to restart the cycle.</span></div>
-<div id="censor-container"></div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const ROAD_LENGTH=1000,ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3;
 const LAMP_SPACING=40,LAMP_HEIGHT=9,LAMP_ARM_REACH=3.5,NUM_LAMP_SLOTS=14;
-// Adjusted Fog: Very dense to limit view to ~20-50 units
-const FOG_DENSITY=0.08; 
+const FOG_DENSITY=0.03;
 const BASE_SPEED=0.45,MAX_SPEED=1.0,MIN_SPEED=0.08,ACCEL=0.007,BRAKE=0.014,DRAG=0.0015;
 const REVERSE_MAX=-0.4;
 const STEER_SPEED_LOW=0.1;
-const STEER_SPEED_HIGH=0.005;
+const STEER_SPEED_HIGH=0.005; // Much less aggressive at high speeds
 const STEER_SMOOTHING=0.3;
 const WALL_INNER=ROAD_WIDTH/2+2-0.85;
-// Adjusted Merge: Z-axis based merge logic
-const MERGE_FRAMES=120, MERGE_START_Z_OFFSET=60; 
+const MERGE_FRAMES=120,MERGE_START_Y=-2.0,MERGE_START_Z=20;
 const RAIN_COUNT=5000,RAIN_SPREAD=100,RAIN_HEIGHT=26,STREAK_LEN=0.25;
 const COL_HX=0.85,COL_HZ=2.2,WHEEL_R=0.29,MIN_OBS_SPACING=ROAD_WIDTH*2;
 const SIGN_SPACING=400,NUM_SIGN_SLOTS=5,VHS_SCALE=0.50;
 const PED_MIN_INTERVAL=100,PED_MAX_INTERVAL=500;
-const TUNNEL_INTERVAL=400, TUNNEL_LENGTH=150;
 
 // ── Renderer ─────────────────────────────────────────────────────────
 const renderer=new THREE.WebGLRenderer({antialias:false});
@@ -115,10 +53,9 @@ document.body.appendChild(renderer.domElement);
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x010102);
 scene.fog=new THREE.FogExp2(0x010102,FOG_DENSITY);
 const camera=new THREE.PerspectiveCamera(66,window.innerWidth/window.innerHeight,0.1,600);
-camera.layers.enable(1); 
+camera.layers.enable(1); // Enable layer 1 so we can see the player car body
 const mirrorCam=new THREE.PerspectiveCamera(58,4.2,0.5,280);
 mirrorCam.layers.set(0);
-// Correctly referencing the mirror element
 const mirrorEl=document.getElementById('mirror-frame');
 scene.add(new THREE.AmbientLight(0x14141e,0.24));
 
@@ -159,7 +96,6 @@ const shoulderMat=new THREE.MeshStandardMaterial({color:0x0f0f0f,roughness:0.22,
 const markingMat=new THREE.MeshStandardMaterial({color:0x55554a,roughness:0.25,emissive:0x0a0a08,emissiveIntensity:0.14});
 const railMat=new THREE.MeshPhongMaterial({color:0x303030,specular:0x555555,shininess:30});
 const medianMat=new THREE.MeshStandardMaterial({color:0x222222,roughness:0.5,metalness:0.05});
-
 function createRoadSegment(){const g=new THREE.Group();
   const rd=new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH,ROAD_LENGTH),asphaltMat);rd.rotation.x=-Math.PI/2;rd.position.set(0,0,-ROAD_LENGTH/2);g.add(rd);
   const sh=new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH+SHOULDER_EXTRA*2,ROAD_LENGTH),shoulderMat);sh.rotation.x=-Math.PI/2;sh.position.set(0,-0.015,-ROAD_LENGTH/2);g.add(sh);
@@ -172,27 +108,6 @@ function createRoadSegment(){const g=new THREE.Group();
   const med=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.35,ROAD_LENGTH),medianMat);med.position.set(-(ROAD_WIDTH/2+3),0.17,-ROAD_LENGTH/2);g.add(med);return g;}
 const segments=[createRoadSegment(),createRoadSegment(),createRoadSegment()];segments.forEach(s=>scene.add(s));
 
-// ── Tunnels ──────────────────────────────────────────────────────────
-const tunnelMat = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 0.8, side: THREE.DoubleSide});
-const tunnelSegments = [];
-
-function createTunnel() {
-  const g = new THREE.Group();
-  // Roof arch
-  const shape = new THREE.Shape();
-  const radius = ROAD_WIDTH/2 + 4;
-  const height = 12;
-  shape.moveTo(-radius, 0);
-  shape.lineTo(-radius, height*0.6);
-  shape.absarc(0, height*0.6, radius, Math.PI, 0, true);
-  shape.lineTo(radius, 0);
-  const geo = new THREE.ExtrudeGeometry(shape, {depth: TUNNEL_LENGTH, bevelEnabled: false, curveSegments: 12});
-  const mesh = new THREE.Mesh(geo, tunnelMat);
-  mesh.position.z = -TUNNEL_LENGTH; // extrusion goes forward z, so shift back
-  g.add(mesh);
-  return g;
-}
-
 // ── Lamps ────────────────────────────────────────────────────────────
 const lampPostMat=new THREE.MeshPhongMaterial({color:0x252525,specular:0x333333,shininess:15});
 const lampGlassMat=new THREE.MeshBasicMaterial({color:0xffe8c0,transparent:true,opacity:0.75});
@@ -204,62 +119,12 @@ function createLampPost(){const g=new THREE.Group();
   const bs=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,0.12,6),lampPostMat);bs.position.y=0.06;g.add(bs);return g;}
 const lampPosts=[],lampLights=[];
 for(let i=0;i<NUM_LAMP_SLOTS;i++){const p=createLampPost();scene.add(p);lampPosts.push(p);const l=new THREE.PointLight(0xffe0a0,380,95,1.6);scene.add(l);lampLights.push(l);}
-
-function updateLampsAndTunnels(prog){
-  // Lamps
-  const b=Math.floor(prog/LAMP_SPACING)-4;
-  for(let i=0;i<NUM_LAMP_SLOTS;i++){
-    const idx=b+i,z=idx*LAMP_SPACING,side=(idx%2===0)?1:-1;
+function updateLamps(prog){const b=Math.floor(prog/LAMP_SPACING)-4;
+  for(let i=0;i<NUM_LAMP_SLOTS;i++){const idx=b+i,z=idx*LAMP_SPACING,side=(idx%2===0)?1:-1;
     lampPosts[i].position.set(side*(ROAD_WIDTH/2+2),0,-z);lampPosts[i].scale.x=side;
-    lampLights[i].position.set(side*(ROAD_WIDTH/2-1),LAMP_HEIGHT-0.3,-z);
-    
-    // Check if lamp is inside a tunnel
-    const lampPosZ = z; 
-    let inTunnel = false;
-    
-    // Check nearest tunnel intervals
-    const tunnelIdx = Math.floor(lampPosZ / TUNNEL_INTERVAL);
-    const tunnelStart = tunnelIdx * TUNNEL_INTERVAL;
-    const tunnelEnd = tunnelStart + TUNNEL_LENGTH;
-    
-    // If lamp Z is within tunnel range
-    if (lampPosZ > tunnelStart && lampPosZ < tunnelEnd && tunnelIdx > 0) {
-      inTunnel = true;
-    }
-
-    lampLights[i].visible = !inTunnel;
-  }
-  
-  // Update Tunnels
-  // We manage a pool of 2 tunnels (current and next)
-  const currentTunnelIdx = Math.floor(prog / TUNNEL_INTERVAL);
-  
-  // Ensure we have tunnel meshes
-  while (tunnelSegments.length < 2) {
-    const t = createTunnel();
-    scene.add(t);
-    tunnelSegments.push(t);
-  }
-  
-  // Position tunnels
-  // 1. Current or just passed tunnel
-  if (currentTunnelIdx > 0) {
-    tunnelSegments[0].position.set(0, 0, -(currentTunnelIdx * TUNNEL_INTERVAL));
-    tunnelSegments[0].visible = true;
-  } else {
-    tunnelSegments[0].visible = false;
-  }
-  
-  // 2. Next tunnel
-  tunnelSegments[1].position.set(0, 0, -((currentTunnelIdx + 1) * TUNNEL_INTERVAL));
-  tunnelSegments[1].visible = true;
-}
-
+    lampLights[i].position.set(side*(ROAD_WIDTH/2-1),LAMP_HEIGHT-0.3,-z);}}
 const lampFS=[];for(let i=0;i<NUM_LAMP_SLOTS;i++)lampFS.push({active:false,timer:0,seed:Math.random()*1000});
 function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i];
-  // Don't flicker if turned off by tunnel logic
-  if(!lampLights[i].visible) continue;
-  
   if(!fs.active){if(Math.random()<0.0015){fs.active=true;fs.timer=25+Math.floor(Math.random()*70);}lampLights[i].intensity=380;}
   else{fs.timer--;lampLights[i].intensity=Math.sin(fs.timer*0.9+fs.seed)*Math.sin(fs.timer*2.3)>0.05?380:15;
     if(fs.timer<=0){fs.active=false;lampLights[i].intensity=380;}}}}
@@ -325,6 +190,8 @@ function createSedan(colour){
 // ── Player ───────────────────────────────────────────────────────────
 const playerCar=createSedan(0xE8E8E8);
 scene.add(playerCar);
+// Note: Player car body stays on layer 0 (visible to both cameras)
+// Only the inner shell is on layer 1
 
 function makeHeadlight(){const pl=new THREE.PointLight(0xfff2da,800,800,0.8);scene.add(pl);return pl;}
 const hlL=makeHeadlight(),hlR=makeHeadlight();
@@ -342,6 +209,7 @@ let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,currentS
 let damageLevel=0;const playerBodyMat=playerCar.children[1].material;const ORIGINAL_COLOR=new THREE.Color(0xE8E8E8);
 const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice();
 
+// Headlight power system
 let headlightPower=1.0;
 let hlFlickerTimer=0;
 let hlFlickerDuration=0;
@@ -450,7 +318,12 @@ let mountainInitialDistance=0;
 
 function spawnLandmarks(loopNum){
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
-  if(constantMountain){scene.remove(constantMountain);constantMountain=null;}
+  
+  // Clear mountain on restart
+  if(constantMountain){
+    scene.remove(constantMountain);
+    constantMountain=null;
+  }
   
   const rng=seededRNG(loopNum*3917+11);
   const types=[createWaterTower,createBillboard,createSilo,createRadioTower,createWindmill,createPowerLines,createSmallBuilding];
@@ -463,6 +336,7 @@ function spawnLandmarks(loopNum){
     scene.add(lm);landmarks.push(lm);
   }
   
+  // Spawn mountain on loop 1
   if(loopNum===1){
     constantMountain=createMountain();
     constantMountain.position.set(150,0,-300);
@@ -552,7 +426,10 @@ function updatePedestrian(){
   const distX=Math.abs(pedestrianX-currentX);
   const distZ=Math.abs(pedestrianZ-progress);
   if(distX<0.9&&distZ<2.0){
-    crashMsgEl.textContent='fatal collision detected.';
+    const randomSeconds=10*60+Math.floor(Math.random()*(50*60));
+    const mins=Math.floor(randomSeconds/60);
+    const secs=randomSeconds%60;
+    crashMsgEl.textContent='you killed yourself in '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+' minutes.';
     triggerCrash(null);
     pedestrianActive=false;
     pedestrian.visible=false;
@@ -560,7 +437,7 @@ function updatePedestrian(){
 }
 
 // ── The Stalker ──────────────────────────────────────────────────────
-let mirrorDissonanceActive=true; 
+let mirrorDissonanceActive=true; // Start with ghosts visible
 function createStalker(){
   const g=new THREE.Group();
   const headlightMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.7});
@@ -570,13 +447,16 @@ function createStalker(){
   const rightLight=new THREE.Mesh(new THREE.SphereGeometry(0.15,8,8),headlightMat);
   rightLight.position.set(0.6,0.5,0);
   g.add(rightLight);
+  
+  // Add dim point lights
   const leftGlow=new THREE.PointLight(0xffffff,50,20,2);
   leftGlow.position.set(-0.6,0.5,0);
   g.add(leftGlow);
   const rightGlow=new THREE.PointLight(0xffffff,50,20,2);
   rightGlow.position.set(0.6,0.5,0);
   g.add(rightGlow);
-  g.layers.set(0); 
+  
+  g.layers.set(0); // Visible in mirror
   g.visible=false;
   return g;
 }
@@ -600,50 +480,27 @@ function updateSparks(){for(let i=0;i<SPARK_COUNT;i++){if(sparkLife[i]>0){sparkL
 
 // ── Ghosts ───────────────────────────────────────────────────────────
 const allRecordings=[];let currentRecording=[];
-class Ghost{
-  constructor(rec,spawnLoop){
-    this.rec=rec;
-    this.mesh=createSedan(0x1e1e28);
+class Ghost{constructor(rec,spawnLoop){this.rec=rec;this.mesh=createSedan(0x1e1e28);
     this.mesh.children[1].material.color.copy(playerBodyMat.color);
-    this.mesh.children[1].layers.set(1); 
-    this.frame=0;
-    this.mFrame=0;
-    this.merged=false;
-    this.creationTime=performance.now();
-    this.mesh.visible=true;
+    this.mesh.children[1].layers.set(1); // Set ghost body to layer 1 too
+    this.frame=0;this.mFrame=0;this.merged=false;this.creationTime=performance.now();this.mesh.visible=true;
     this.spawnLoop=spawnLoop;
     this.lastPos={x:0,z:0};
     this.stationaryFrames=0;
-    scene.add(this.mesh);
-  }
-  
+    scene.add(this.mesh);}
   static ease(t){return t*t*(3-2*t);}
-  
   update(currentLoopBase){
     const r=this.rec;if(!r.length)return;
     const f=r[this.frame%r.length];
     
-    // Ghost Logic Update: Cars come from behind (Z-axis) not floor (Y-axis)
-    // Recorded frame 'f.z' is relative to loop start.
-    const rawZ = -(currentLoopBase + f.z);
+    const rawZ=-(currentLoopBase+f.z);
     
     if(!this.merged){
-      this.mFrame++;
-      const t=Math.min(this.mFrame/MERGE_FRAMES, 1);
-      const sv=Ghost.ease(t);
-      
-      // Interpolate Z from "Behind" (rawZ + OFFSET) to rawZ
-      // Y stays at 0
-      const startZ = rawZ + MERGE_START_Z_OFFSET; 
-      const currentZ = startZ * (1-sv) + rawZ * sv;
-      
-      this.mesh.position.set(f.x, 0, currentZ);
-      
-      if(t>=1) this.merged=true;
+      this.mFrame++;const t=Math.min(this.mFrame/MERGE_FRAMES,1),sv=Ghost.ease(t);
+      this.mesh.position.set(f.x,MERGE_START_Y*(1-sv),rawZ+MERGE_START_Z*(1-sv));
+      if(t>=1)this.merged=true;
     }
-    else {
-      this.mesh.position.set(f.x, 0, rawZ);
-    }
+    else this.mesh.position.set(f.x,0,rawZ);
     
     if(f.drift!==undefined)this.mesh.rotation.y=f.drift;
     else{const nf=r[(this.frame+1)%r.length];this.mesh.rotation.y=-(nf.x-f.x)*0.35;}
@@ -659,8 +516,7 @@ class Ghost{
     this.frame=(this.frame+1)%r.length;
   }
   isStationary(){return this.stationaryFrames>60;}
-  getWorldXZ(){return{x:this.mesh.position.x,z:this.mesh.position.z};}
-}
+  getWorldXZ(){return{x:this.mesh.position.x,z:this.mesh.position.z};}}
 const ghosts=[];
 
 // ── Obstacles (sedans only) ──────────────────────────────────────────
@@ -671,7 +527,7 @@ function spawnObstacles(loopNum){for(const o of liveObstacles)scene.remove(o.mes
   for(let i=0;i<count;i++){let ox,oz,valid,att=0;
     do{ox=(rng()-0.5)*(ROAD_WIDTH-2);oz=rng()*(ROAD_LENGTH-80)+40;valid=true;for(const pz of placed)if(Math.abs(oz-pz)<MIN_OBS_SPACING){valid=false;break;}att++;}while(!valid&&att<40);
     if(!valid)continue;placed.push(oz);const mesh=createSedan(0x121216);mesh.rotation.y=(rng()-0.5)*0.5;
-    mesh.children[1].layers.set(1); 
+    mesh.children[1].layers.set(1); // Set obstacle body to layer 1
     scene.add(mesh);
     liveObstacles.push({mesh,ox,oz,lastPos:{x:0,z:0},stationaryFrames:0});}}
 
@@ -695,7 +551,7 @@ function createRoadSign(){const g=new THREE.Group(),pM=new THREE.MeshPhongMateri
 const roadSigns=[];for(let i=0;i<NUM_SIGN_SLOTS;i++){const s=createRoadSign();scene.add(s);roadSigns.push(s);}
 function getSignContent(idx){const t=((idx%5)+5)%5;switch(t){
   case 0:return{l1:Math.floor(progress/10)+' counts',l2:''};
-  case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'road clear'};
+  case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'there is nobody on this road'};
   case 2:return{l1:'progress '+loopCount,l2:Math.floor(progress/10)+' counts'};
   case 3:return{l1:'no exit ahead.',l2:ghosts.length+' iterations.'};
   case 4:return{l1:Math.floor(progress/10)+' counts',l2:ghosts.length+' iterations ahead.'};}}
@@ -720,20 +576,21 @@ function tickRain(anchor){const p=rainGeo.attributes.position.array;
 let cameraMode=1;const CAM_MODES=2;
 const cam3P=new THREE.Vector3(),cam3L=new THREE.Vector3();let cam3I=false;
 
-// Mouse look system (Unified for 360 view)
-let mouseLookYaw=0; 
-let mouseLookPitch=0; 
+// Mouse look for interior camera
+let mouseLookYaw=0; // horizontal rotation
+let mouseLookPitch=0; // vertical rotation
 let targetYaw=0;
 let targetPitch=0;
-const MAX_PITCH=85*Math.PI/180; // +/- 85 degrees
-const MOUSE_SENSITIVITY=0.004;
-const LOOK_LERP=0.1; 
+const MAX_YAW=150*Math.PI/180; // +/- 150 degrees
+const MAX_PITCH=60*Math.PI/180; // +/- 60 degrees
+const MOUSE_SENSITIVITY=0.006;
+const LOOK_LERP=0.08; // Slower = more laggy/analog feel
 
 window.addEventListener('mousemove',(e)=>{
-  if(!paused && !crashed){
+  if(cameraMode===0 && !paused && !crashed){
     targetYaw-=e.movementX*MOUSE_SENSITIVITY;
-    targetPitch-=e.movementY*MOUSE_SENSITIVITY;
-    // Allow 360 yaw (no clamp), Clamp pitch
+    targetPitch+=e.movementY*MOUSE_SENSITIVITY;
+    targetYaw=Math.max(-MAX_YAW,Math.min(MAX_YAW,targetYaw));
     targetPitch=Math.max(-MAX_PITCH,Math.min(MAX_PITCH,targetPitch));
   }
 });
@@ -741,77 +598,56 @@ window.addEventListener('mousemove',(e)=>{
 function cycleCamera(){
   cameraMode=(cameraMode+1)%CAM_MODES;
   cam3I=false;
-  // Reset offsets when switching
-  mouseLookYaw=0;mouseLookPitch=0;targetYaw=0;targetPitch=0;
+  // Reset mouse look
+  mouseLookYaw=0;
+  mouseLookPitch=0;
+  targetYaw=0;
+  targetPitch=0;
 }
 
 function updateCameraSystem(spd){
   const cosH=Math.cos(heading),sinH=Math.sin(heading),sf=Math.abs(spd)/MAX_SPEED;
-  
-  // Smooth mouse look
-  mouseLookYaw+=(targetYaw-mouseLookYaw)*LOOK_LERP;
-  mouseLookPitch+=(targetPitch-mouseLookPitch)*LOOK_LERP;
-  
   if(cameraMode===0){
-    // Interior / First Person
     playerCar.visible=false;arrowMesh.visible=false;
     
-    // Position inside car
-    const camPos = new THREE.Vector3(
+    // Smooth mouse look with lerp
+    mouseLookYaw+=(targetYaw-mouseLookYaw)*LOOK_LERP;
+    mouseLookPitch+=(targetPitch-mouseLookPitch)*LOOK_LERP;
+    
+    // Interior camera position
+    camera.position.set(
       currentX+(-0.50)*cosH+(-0.35)*sinH,
       0.88,
       -progress+(0.50*sinH+(-0.35)*cosH)
     );
-    camera.position.copy(camPos);
     
-    // Look Rotation
-    // Combine car heading with mouse offsets
-    const totalYaw = -heading + mouseLookYaw + Math.PI; // +PI to look forward
-    const lookX = camPos.x + Math.sin(totalYaw) * Math.cos(mouseLookPitch);
-    const lookY = camPos.y + Math.sin(mouseLookPitch);
-    const lookZ = camPos.z + Math.cos(totalYaw) * Math.cos(mouseLookPitch);
+    // Look direction with mouse offset
+    const lookDist=30;
+    const lookX=currentX+(-sinH)*lookDist;
+    const lookY=0.50;
+    const lookZ=-progress+(-cosH)*lookDist;
     
-    camera.lookAt(lookX,lookY,lookZ);
+    // Apply yaw rotation (left-right)
+    const yawCos=Math.cos(mouseLookYaw);
+    const yawSin=Math.sin(mouseLookYaw);
+    const rotatedX=lookX+yawSin*10;
+    const rotatedZ=lookZ+yawCos*10;
+    
+    // Apply pitch (up-down)
+    const pitchedY=lookY+Math.sin(mouseLookPitch)*5;
+    
+    camera.lookAt(rotatedX,pitchedY,rotatedZ);
     camera.near=0.3;camera.fov=76;camera.updateProjectionMatrix();
-    
-  } else {
-    // Chase / Third Person
+  }else{
     playerCar.visible=true;arrowMesh.visible=true;
-    
-    // Calculate base chase position
-    const bd=3.5+sf*0.3,ch=1.8+sf*0.08;
-    // Base target (car position)
-    const targetX = currentX;
-    const targetY = 0.5;
-    const targetZ = -progress;
-    
-    // Orbit logic based on mouseYaw
-    // If mouseYaw is 0, we are behind car. 
-    // We orbit around the target.
-    const orbitDist = 5.0 + sf * 1.0;
-    const orbitHeight = 1.8 + sf * 0.5 + Math.sin(mouseLookPitch)*2.0;
-    
-    // Angle behind car + mouse offset
-    const orbitAngle = heading + Math.PI + mouseLookYaw;
-    
-    const wx = targetX + Math.sin(orbitAngle) * orbitDist;
-    const wz = targetZ + Math.cos(orbitAngle) * orbitDist;
-    const wy = Math.max(0.2, orbitHeight); // Don't go below ground
-    
-    if(!cam3I){cam3P.set(wx,wy,wz);cam3I=true;}
-    
+    const bd=3.5+sf*0.3,ch=1.8+sf*0.08,wx=currentX+sinH*bd,wy=ch,wz=-progress+cosH*bd;
+    if(!cam3I){cam3P.set(wx,wy,wz);cam3L.set(currentX,0.5,-progress-15);cam3I=true;}
+    // Faster lerp at high speeds so camera keeps up better
     const posLerp=0.10+sf*0.08;
-    cam3P.x+=(wx-cam3P.x)*posLerp;cam3P.y+=(wy-cam3P.y)*posLerp;cam3P.z+=(wz-cam3P.z)*posLerp;
-    
-    camera.position.copy(cam3P);
-    camera.lookAt(targetX, targetY, targetZ);
-    
-    camera.near=0.1;
-    const tf=64+sf*6;
-    camera.fov+=(tf-camera.fov)*0.016;
-    camera.updateProjectionMatrix();
-  }
-}
+    const lookLerp=0.12+sf*0.10;
+    cam3P.x+=(wx-cam3P.x)*posLerp;cam3P.y+=(wy-cam3P.y)*posLerp;cam3P.z+=(wz-cam3P.z)*posLerp;camera.position.copy(cam3P);
+    const la=16+sf*6;cam3L.x+=(currentX+(-sinH)*la-cam3L.x)*lookLerp;cam3L.y+=(0.50-cam3L.y)*lookLerp;cam3L.z+=(-progress+(-cosH)*la-cam3L.z)*lookLerp;
+    camera.lookAt(cam3L);camera.near=0.1;const tf=64+sf*6;camera.fov+=(tf-camera.fov)*0.016;camera.updateProjectionMatrix();}}
 
 // ── Speedometer ──────────────────────────────────────────────────────
 const speedoCanvas=document.getElementById('speedo'),speedoCtx=speedoCanvas.getContext('2d');
@@ -835,49 +671,44 @@ window.addEventListener('keyup',e=>{keys[e.code]=false;});
 let loopCount=0,lastLoopIdx=0,paused=false,crashed=false;
 const crashOverlay=document.getElementById('crash-overlay'),crashMsgEl=crashOverlay.querySelector('.msg'),solsEl=document.getElementById('sols');
 const vhsTimestampEl=document.getElementById('vhs-timestamp');
-const censorContainer = document.getElementById('censor-container');
 
-// Real-time Clock logic
-let gameTime = 0; // In seconds
-function updateVHSTimestamp(dt){
-  if(!paused && !crashed){
-    gameTime += dt;
-  }
-  const t = Math.floor(gameTime);
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const s = t % 60;
+// Nonsensical VHS timestamp generator
+function updateVHSTimestamp(time){
+  const chars='╛┐└┴┬├─┼╞╟╚╔╩╦╠═=╬╧╤‡▬█▄▌▐▀Σ░▒▓Ω~1234567890!@#$%^&*-_|\/:';
+  const randomChar=()=>chars[Math.floor(Math.random()*chars.length)];
   
-  const hStr = String(h).padStart(2,'0');
-  const mStr = String(m).padStart(2,'0');
-  const sStr = String(s).padStart(2,'0');
+  // Generate impossible time values
+  const h1=Math.floor(Math.random()*20);
+  const h2=Math.random()<0.3?randomChar():Math.floor(Math.random()*10);
+  const m1=Math.floor(Math.random()*15);
+  const m2=Math.random()<0.2?randomChar():Math.floor(Math.random()*10);
+  const s1=Math.floor(Math.random()*12);
+  const s2=Math.random()<0.15?randomChar():Math.floor(Math.random()*10);
   
-  vhsTimestampEl.textContent=`REC ● ${hStr}:${mStr}:${sStr}`;
+  // Occasionally glitch the separator
+  const sep=Math.random()<0.05?'▓':':';
+  
+  vhsTimestampEl.textContent=`REC ● ${h1}${h2}${sep}${m1}${m2}${sep}${s1}${s2}`;
 }
 
 // Flash effect state
 let flashActive=false;
 let flashProgress=0;
-const FLASH_DURATION=2.0; 
+const FLASH_DURATION=2.0; // seconds
 let lastFlashSol=-1;
 
-function togglePause(){
-  if(!crashed){
-    paused=!paused;
-    if(!paused) {
-      // Clear censor boxes when unpausing
-      censorContainer.innerHTML = '';
-    }
-  }
-}
+function togglePause(){if(!crashed)paused=!paused;}
 function boxesOverlap(ax,az,bx,bz,hx,hz){return Math.abs(ax-bx)<hx*2&&Math.abs(az-bz)<hz*2;}
 
 function triggerCrash(ghostRef){if(crashed)return;crashed=true;
   for(const gh of ghosts)scene.remove(gh.mesh);ghosts.length=0;allRecordings.length=0;
   if(ghostRef&&ghostRef.creationTime){const el=(performance.now()-ghostRef.creationTime)/1000;
-    crashMsgEl.textContent='fatal error: collision with past iteration ('+String(Math.floor(el/60)).padStart(2,'0')+':'+String(Math.floor(el%60)).padStart(2,'0')+' ago).';}
+    crashMsgEl.textContent='you killed yourself '+String(Math.floor(el/60)).padStart(2,'0')+':'+String(Math.floor(el%60)).padStart(2,'0')+' ago.';}
   else{
-    crashMsgEl.textContent='critical system failure.';
+    const randomSeconds=5+Math.floor(Math.random()*(5*60-5));
+    const mins=Math.floor(randomSeconds/60);
+    const secs=randomSeconds%60;
+    crashMsgEl.textContent='you will kill yourself in '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+'';
   }
   crashOverlay.classList.add('active');}
 
@@ -899,331 +730,264 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   if(constantMountain){scene.remove(constantMountain);constantMountain=null;}
   flashActive=false;flashProgress=0;lastFlashSol=-1;
   mouseLookYaw=0;mouseLookPitch=0;targetYaw=0;targetPitch=0;
-  gameTime=0;
-  censorContainer.innerHTML='';
 }
 
 function lerp(a,b,t){return a+(b-a)*t;}
 
-// Controls fade out
-setTimeout(() => {
-  document.getElementById('controls').classList.add('hidden');
-}, 5000);
-
-// ── Censorship Logic (DOM based) ─────────────────────────────────────
-function updateCensorship() {
-  censorContainer.innerHTML = ''; // Clear previous frame
-  
-  if (!ghosts.length) return;
-
-  // Function to project 3D position to 2D screen coordinates
-  const createBox = (obj, cam, viewportX, viewportY, viewportW, viewportH) => {
-    // Get position of ghost
-    const pos = obj.mesh.position.clone();
-    pos.y += 0.8; // Center on car body
-    
-    // Project
-    pos.project(cam);
-    
-    // Check if within camera frustum
-    if (pos.z > 1 || pos.z < -1 || Math.abs(pos.x) > 1 || Math.abs(pos.y) > 1) return;
-    
-    // Map to screen pixels
-    // NDC (-1 to 1) -> (0 to 1) -> Pixels
-    const x = (pos.x * 0.5 + 0.5) * viewportW + viewportX;
-    const y = (-(pos.y * 0.5) + 0.5) * viewportH + viewportY;
-    
-    // Create element
-    const el = document.createElement('div');
-    el.className = 'censor-box';
-    // Size scales with distance slightly?
-    // Using simple fixed size relative to perspective could be complex, 
-    // let's use a standard size that covers enough.
-    const size = Math.max(20, 100 / pos.z); // Rough scaling
-    const w = 60; 
-    const h = 40;
-    
-    el.style.left = `${x - w/2}px`;
-    el.style.top = `${y - h/2}px`;
-    el.style.width = `${w}px`;
-    el.style.height = `${h}px`;
-    
-    censorContainer.appendChild(el);
-  };
-
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-
-  ghosts.forEach(g => {
-    if (!g.mesh.visible) return; // Don't censor invisible ghosts
-
-    // 1. Main Camera View
-    createBox(g, camera, 0, 0, w, h);
-    
-    // 2. Mirror View
-    // Need mirror screen rect
-    const mRect = mirrorEl.getBoundingClientRect();
-    if(mRect.width > 0) {
-      createBox(g, mirrorCam, mRect.left, mRect.top, mRect.width, mRect.height);
-    }
-  });
-}
-
 // ═════════════════════════════════════════════════════════════════════
 let lastT=0;spawnObstacles(0);spawnLandmarks(0);
-
-function frame(ts){
-  requestAnimationFrame(frame);
-  const dt=Math.min((ts-lastT)/1000,0.05);
-  lastT=ts;
+let vhsTimestampFrame=0;
+function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/1000,0.05);lastT=ts;
   
-  // Logic Update ------------------------------------------
-  if(!paused && !crashed){
-    // Update Time
-    updateVHSTimestamp(dt);
-
-    // Flash effect
-    if(flashActive){
-      flashProgress+=dt;
-      const t=Math.min(flashProgress/FLASH_DURATION,1.0);
-      renderer.toneMappingExposure=lerp(8.0,0.76,t);
-      vhsShader.uniforms.grainBoost.value=lerp(10.0,1.0,t);
-      if(t>=1.0){
-        flashActive=false;
-        renderer.toneMappingExposure=0.76;
-        vhsShader.uniforms.grainBoost.value=1.0;
-      }
+  // Update VHS timestamp every 5 frames for ticking effect
+  vhsTimestampFrame++;
+  if(vhsTimestampFrame%5===0){
+    updateVHSTimestamp(ts);
+  }
+  
+  // Flash effect update
+  if(flashActive){
+    flashProgress+=dt;
+    const t=Math.min(flashProgress/FLASH_DURATION,1.0);
+    renderer.toneMappingExposure=lerp(8.0,0.76,t);
+    vhsShader.uniforms.grainBoost.value=lerp(10.0,1.0,t);
+    if(t>=1.0){
+      flashActive=false;
+      renderer.toneMappingExposure=0.76;
+      vhsShader.uniforms.grainBoost.value=1.0;
     }
+  }
+  
+  if(paused||crashed){renderer.setRenderTarget(vhsRT);renderer.setViewport(0,0,vhsRT.width,vhsRT.height);renderer.clear();renderer.render(scene,camera);
+    renderer.setRenderTarget(null);renderer.setViewport(0,0,window.innerWidth,window.innerHeight);renderer.clear();vhsShader.uniforms.time.value=ts*0.001;renderer.render(vhsScene,vhsCamera);
+    drawSpeedometer(0);return;}
 
-    // Input & Physics
-    const targetSteer=(keys['ArrowLeft']||keys['KeyA'])?-1:(keys['ArrowRight']||keys['KeyD'])?1:0;
-    currentSteerInput+=(targetSteer-currentSteerInput)*STEER_SMOOTHING;
+  const targetSteer=(keys['ArrowLeft']||keys['KeyA'])?-1:(keys['ArrowRight']||keys['KeyD'])?1:0;
+  currentSteerInput+=(targetSteer-currentSteerInput)*STEER_SMOOTHING;
+  
+  prevSpeed=speed;
+  if(keys['ArrowUp']||keys['KeyW'])speed=Math.min(MAX_SPEED,speed+ACCEL);
+  else if(keys['ArrowDown']||keys['KeyS']){if(speed>0)speed=Math.max(0,speed-BRAKE);else speed=Math.max(REVERSE_MAX,speed-ACCEL*0.6);}
+  else{if(speed>BASE_SPEED)speed=Math.max(BASE_SPEED,speed-DRAG);else if(speed>0&&speed<BASE_SPEED)speed=Math.min(BASE_SPEED,speed+DRAG*0.4);
+    else if(speed<0)speed=Math.min(0,speed+DRAG*2);}
+
+  const absSpeed=Math.abs(speed);
+  const speedFactor=Math.min(absSpeed/MAX_SPEED,1.0);
+  const steerRate=STEER_SPEED_LOW+(STEER_SPEED_HIGH-STEER_SPEED_LOW)*speedFactor;
+  
+  const steerDir=speed>=0?1:-1;
+  heading-=currentSteerInput*steerDir*steerRate*absSpeed;
+
+  progress+=speed*Math.cos(heading);currentX-=speed*Math.sin(heading);
+
+  // Wall collision — FIXED: damage stays white/grey but gets darker
+  let wallHit=false;
+  if(Math.abs(currentX)>WALL_INNER){
+    const wallSide=Math.sign(currentX);currentX=wallSide*WALL_INNER;
+    const impact=Math.abs(Math.sin(heading));
+    if(impact>0.6){speed*=0.08;}
+    else if(impact>0.25){speed*=(1-impact*0.8);}
+    else{speed*=(1-impact*0.15);}
+    wallHit=true;emitSparks(currentX,-progress,wallSide);
     
-    prevSpeed=speed;
-    if(keys['ArrowUp']||keys['KeyW'])speed=Math.min(MAX_SPEED,speed+ACCEL);
-    else if(keys['ArrowDown']||keys['KeyS']){if(speed>0)speed=Math.max(0,speed-BRAKE);else speed=Math.max(REVERSE_MAX,speed-ACCEL*0.6);}
-    else{if(speed>BASE_SPEED)speed=Math.max(BASE_SPEED,speed-DRAG);else if(speed>0&&speed<BASE_SPEED)speed=Math.min(BASE_SPEED,speed+DRAG*0.4);
-      else if(speed<0)speed=Math.min(0,speed+DRAG*2);}
-
-    const absSpeed=Math.abs(speed);
-    const speedFactor=Math.min(absSpeed/MAX_SPEED,1.0);
-    const steerRate=STEER_SPEED_LOW+(STEER_SPEED_HIGH-STEER_SPEED_LOW)*speedFactor;
+    // Damage darkens car uniformly (not red)
+    damageLevel=Math.min(damageLevel+0.04,0.8);
+    const brightness=1-damageLevel;
+    playerBodyMat.color.setRGB(
+      ORIGINAL_COLOR.r*brightness,
+      ORIGINAL_COLOR.g*brightness,
+      ORIGINAL_COLOR.b*brightness
+    );
     
-    const steerDir=speed>=0?1:-1;
-    heading-=currentSteerInput*steerDir*steerRate*absSpeed;
+    const geo=playerCar.children[1].geometry;const vPos=geo.attributes.position;
+    const dentStr=0.015+damageLevel*0.02;
+    for(let vi=0;vi<vPos.count;vi++){
+      if(Math.random()<0.08){
+        vPos.setX(vi,vPos.getX(vi)+(Math.random()-0.5)*dentStr);
+        vPos.setY(vi,vPos.getY(vi)+(Math.random()-0.5)*dentStr*0.5);
+        vPos.setZ(vi,vPos.getZ(vi)+(Math.random()-0.5)*dentStr);}}
+    vPos.needsUpdate=true;geo.computeVertexNormals();}
+  updateSparks();
 
-    progress+=speed*Math.cos(heading);currentX-=speed*Math.sin(heading);
+  // Wrong-way semi truck
+  const goingWrong=Math.abs(heading)>Math.PI*0.55&&speed>0.1;
+  if(goingWrong){wrongWayTimer++;
+    if(wrongWayTimer>WRONG_WAY_LIMIT&&!semiActive){
+      semiActive=true;semiTruck.visible=true;semiZ=-progress-120;semiTruck.position.set(currentX+(Math.random()-0.5)*3,0,semiZ);semiTruck.rotation.y=0;}
+  }else{wrongWayTimer=Math.max(0,wrongWayTimer-2);}
+  if(semiActive){semiZ+=1.8;semiTruck.position.z=semiZ;
+    if(Math.abs(semiZ-(-progress))<4&&Math.abs(semiTruck.position.x-currentX)<2.5){
+      crashMsgEl.textContent='there is no escape.';triggerCrash(null);semiActive=false;semiTruck.visible=false;}
+    if(semiZ>-progress+30){semiActive=false;semiTruck.visible=false;}}
 
-    // Wall collision
-    let wallHit=false;
-    if(Math.abs(currentX)>WALL_INNER){
-      const wallSide=Math.sign(currentX);currentX=wallSide*WALL_INNER;
-      const impact=Math.abs(Math.sin(heading));
-      if(impact>0.6){speed*=0.08;}
-      else if(impact>0.25){speed*=(1-impact*0.8);}
-      else{speed*=(1-impact*0.15);}
-      wallHit=true;emitSparks(currentX,-progress,wallSide);
-      
-      damageLevel=Math.min(damageLevel+0.04,0.8);
-      const brightness=1-damageLevel;
-      playerBodyMat.color.setRGB(
-        ORIGINAL_COLOR.r*brightness,
-        ORIGINAL_COLOR.g*brightness,
-        ORIGINAL_COLOR.b*brightness
-      );
-      
-      const geo=playerCar.children[1].geometry;const vPos=geo.attributes.position;
-      const dentStr=0.015+damageLevel*0.02;
-      for(let vi=0;vi<vPos.count;vi++){
-        if(Math.random()<0.08){
-          vPos.setX(vi,vPos.getX(vi)+(Math.random()-0.5)*dentStr);
-          vPos.setY(vi,vPos.getY(vi)+(Math.random()-0.5)*dentStr*0.5);
-          vPos.setZ(vi,vPos.getZ(vi)+(Math.random()-0.5)*dentStr);}}
-      vPos.needsUpdate=true;geo.computeVertexNormals();}
-    updateSparks();
+  spawnPedestrian();
+  updatePedestrian();
 
-    // Wrong-way semi truck
-    const goingWrong=Math.abs(heading)>Math.PI*0.55&&speed>0.1;
-    if(goingWrong){wrongWayTimer++;
-      if(wrongWayTimer>WRONG_WAY_LIMIT&&!semiActive){
-        semiActive=true;semiTruck.visible=true;semiZ=-progress-120;semiTruck.position.set(currentX+(Math.random()-0.5)*3,0,semiZ);semiTruck.rotation.y=0;}
-    }else{wrongWayTimer=Math.max(0,wrongWayTimer-2);}
-    if(semiActive){semiZ+=1.8;semiTruck.position.z=semiZ;
-      if(Math.abs(semiZ-(-progress))<4&&Math.abs(semiTruck.position.x-currentX)<2.5){
-        crashMsgEl.textContent='impact imminent.';triggerCrash(null);semiActive=false;semiTruck.visible=false;}
-      if(semiZ>-progress+30){semiActive=false;semiTruck.visible=false;}}
+  currentRecording.push({x:currentX,z:progress%ROAD_LENGTH,speed,drift:heading,wa:0});
 
-    spawnPedestrian();
-    updatePedestrian();
-
-    currentRecording.push({x:currentX,z:progress%ROAD_LENGTH,speed,drift:heading,wa:0});
-
-    // Loop
-    const curLoop=Math.floor(progress/ROAD_LENGTH);
-    if(curLoop>lastLoopIdx){
-      loopCount++;lastLoopIdx=curLoop;
-      
-      if(loopCount%3===0){
-        mirrorDissonanceActive=!mirrorDissonanceActive;
-      }
-      
-      if(currentRecording.length>0){allRecordings.push([...currentRecording]);ghosts.push(new Ghost(allRecordings[allRecordings.length-1],loopCount));currentRecording=[];}
-      spawnObstacles(loopCount);spawnLandmarks(loopCount);
-      
-      headlightPower=Math.max(0.3,headlightPower-0.05);
-    }
-
-    const baseZ=curLoop*ROAD_LENGTH,cosH=Math.cos(heading),sinH=Math.sin(heading);
-    playerCar.position.set(currentX,0,-progress);playerCar.rotation.y=heading;
-    carPitch=lerp(carPitch,(speed-prevSpeed)*2.5,0.10);playerCar.rotation.x=carPitch;
-
-    // Headlight flickering
-    let hlIntensity=800*headlightPower;
-    if(hlFlickerTimer>0){
-      hlFlickerTimer-=dt;
-      hlIntensity=Math.random()<0.5?0:hlIntensity*0.1;
-    }else{
-      const flickerChance=0.002+loopCount*0.0005;
-      if(Math.random()<flickerChance){
-        hlFlickerDuration=0.1+Math.random()*1.4;
-        hlFlickerTimer=hlFlickerDuration;
-      }
+  // Loop
+  const curLoop=Math.floor(progress/ROAD_LENGTH);
+  if(curLoop>lastLoopIdx){
+    loopCount++;lastLoopIdx=curLoop;
+    
+    // Toggle mirror dissonance every few loops
+    if(loopCount%3===0){
+      mirrorDissonanceActive=!mirrorDissonanceActive;
     }
     
-    const hlZ=-2.5;
-    hlL.position.set(currentX+(-0.46)*cosH+hlZ*sinH,0.25,-progress+(0.46*sinH+hlZ*cosH));
-    hlR.position.set(currentX+0.46*cosH+hlZ*sinH,0.25,-progress+(-0.46*sinH+hlZ*cosH));
-    hlL.intensity=hlIntensity;
-    hlR.intensity=hlIntensity;
+    if(currentRecording.length>0){allRecordings.push([...currentRecording]);ghosts.push(new Ghost(allRecordings[allRecordings.length-1],loopCount));currentRecording=[];}
+    spawnObstacles(loopCount);spawnLandmarks(loopCount);
+    
+    // Decrease headlight power each loop
+    headlightPower=Math.max(0.3,headlightPower-0.05);
+  }
 
-    const braking=keys['ArrowDown']||keys['KeyS'];
-    tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
-    tailGlow.distance=braking?22:12;
-    tailGlow.position.set(currentX+2.0*sinH,0.40,-progress+2.0*cosH);
+  const baseZ=curLoop*ROAD_LENGTH,cosH=Math.cos(heading),sinH=Math.sin(heading);
+  playerCar.position.set(currentX,0,-progress);playerCar.rotation.y=heading;
+  carPitch=lerp(carPitch,(speed-prevSpeed)*2.5,0.10);playerCar.rotation.x=carPitch;
 
-    emitSpray(cosH,sinH);updateSpray();
+  // Headlight flickering
+  let hlIntensity=800*headlightPower;
+  if(hlFlickerTimer>0){
+    hlFlickerTimer-=dt;
+    hlIntensity=Math.random()<0.5?0:hlIntensity*0.1;
+  }else{
+    // Random flicker events weighted by loop count
+    const flickerChance=0.002+loopCount*0.0005;
+    if(Math.random()<flickerChance){
+      hlFlickerDuration=0.1+Math.random()*1.4;
+      hlFlickerTimer=hlFlickerDuration;
+    }
+  }
+  
+  const hlZ=-2.5;
+  hlL.position.set(currentX+(-0.46)*cosH+hlZ*sinH,0.25,-progress+(0.46*sinH+hlZ*cosH));
+  hlR.position.set(currentX+0.46*cosH+hlZ*sinH,0.25,-progress+(-0.46*sinH+hlZ*cosH));
+  hlL.intensity=hlIntensity;
+  hlR.intensity=hlIntensity;
 
-    arrowMesh.position.set(currentX,1.6,-progress);arrowMesh.rotation.x=-Math.PI/2;arrowMesh.rotation.z=0;
-    if(cameraMode===1)arrowMesh.lookAt(camera.position);
+  const braking=keys['ArrowDown']||keys['KeyS'];
+  tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
+  tailGlow.distance=braking?22:12;
+  tailGlow.position.set(currentX+2.0*sinH,0.40,-progress+2.0*cosH);
 
-    const si=Math.floor(progress/ROAD_LENGTH);for(let i=0;i<3;i++)segments[i].position.z=-(si-1+i)*ROAD_LENGTH;
+  emitSpray(cosH,sinH);updateSpray();
 
-    updateLampsAndTunnels(progress); // Combined function
-    updateLampFlicker();
+  arrowMesh.position.set(currentX,1.6,-progress);arrowMesh.rotation.x=-Math.PI/2;arrowMesh.rotation.z=0;
+  if(cameraMode===1)arrowMesh.lookAt(camera.position);
 
-    // The Stalker
-    stalker.position.set(currentX,0,-progress+60);
-    stalker.rotation.y=heading;
-    stalker.visible=!mirrorDissonanceActive;
+  const si=Math.floor(progress/ROAD_LENGTH);for(let i=0;i<3;i++)segments[i].position.z=-(si-1+i)*ROAD_LENGTH;
 
-    // Ghosts
-    const pWZ=-progress;
-    for(let i=ghosts.length-1;i>=0;i--){
-      const gh=ghosts[i];
-      gh.update(baseZ);
-      gh.mesh.visible=mirrorDissonanceActive;
-      if(gh.isStationary()){scene.remove(gh.mesh);ghosts.splice(i,1);continue;}
-      if(gh.merged){
-        const gp=gh.getWorldXZ();
-        if(boxesOverlap(currentX,pWZ,gp.x,gp.z,COL_HX,COL_HZ)){triggerCrash(gh);break;}
-      }
+  updateLamps(progress);updateLampFlicker();
+
+  // The Stalker - follows 60 units behind
+  stalker.position.set(currentX,0,-progress+60);
+  stalker.rotation.y=heading;
+  
+  // Toggle stalker visibility based on mirror dissonance
+  stalker.visible=!mirrorDissonanceActive;
+
+  // Ghosts + collision
+  const pWZ=-progress;
+  for(let i=ghosts.length-1;i>=0;i--){
+    const gh=ghosts[i];
+    gh.update(baseZ);
+    
+    // Hide ghosts when stalker is active
+    gh.mesh.visible=mirrorDissonanceActive;
+    
+    if(gh.isStationary()){
+      scene.remove(gh.mesh);
+      ghosts.splice(i,1);
+      continue;
     }
     
-    // Obstacles
-    for(let i=liveObstacles.length-1;i>=0;i--){
-      const ob=liveObstacles[i];
-      ob.mesh.position.z=-(baseZ+ob.oz);
-      ob.mesh.position.x=ob.ox;
-      const dx=ob.mesh.position.x-ob.lastPos.x;
-      const dz=ob.mesh.position.z-ob.lastPos.z;
-      const moved=Math.abs(dx)+Math.abs(dz);
-      if(moved<0.01){ob.stationaryFrames++;}else{ob.stationaryFrames=0;}
-      ob.lastPos.x=ob.mesh.position.x;
-      ob.lastPos.z=ob.mesh.position.z;
-      if(ob.stationaryFrames>60){scene.remove(ob.mesh);liveObstacles.splice(i,1);continue;}
-      if(boxesOverlap(currentX,pWZ,ob.ox,ob.mesh.position.z,COL_HX,COL_HZ))triggerCrash(null);
-    }
-
-    updateSigns(progress);tickRain(playerCar.position);
-
-    // Mountain
-    if(constantMountain){
-      const baseZLM=curLoop*ROAD_LENGTH;
-      if(loopCount>=1&&loopCount<=3){constantMountain.position.z=-progress-mountainInitialDistance;}
-      else if(loopCount===4){
-        const jitterX=(Math.random()-0.5)*5;const jitterY=(Math.random()-0.5)*3;const jitterZ=(Math.random()-0.5)*5;
-        constantMountain.position.set(150+jitterX,jitterY,-progress-150+jitterZ);
-      }else if(loopCount>4){
-        constantMountain.position.x=150+(Math.random()-0.5)*8;
-        constantMountain.position.y=(Math.random()-0.5)*4;
-        constantMountain.position.z=-progress-150+(Math.random()-0.5)*8;
+    if(gh.merged){
+      const gp=gh.getWorldXZ();
+      if(boxesOverlap(currentX,pWZ,gp.x,gp.z,COL_HX,COL_HZ)){
+        triggerCrash(gh);
+        break;
       }
     }
-
-    let nearSign=false;
-    for(let si2=0;si2<NUM_SIGN_SLOTS;si2++){if(Math.abs(roadSigns[si2].position.z-(-progress))<40){nearSign=true;solsEl.textContent=roadSigns[si2].userData.text||'';
-      if(!solsEl.classList.contains('sign-mode'))solsEl.classList.add('sign-mode');break;}}
-    if(!nearSign&&solsEl.classList.contains('sign-mode'))solsEl.classList.remove('sign-mode');
-
-    // Fog & Flash
-    const sols=Math.floor(progress/10);
-    // Adjusted Fog Logic to maintain density
-    if(sols>=100&&sols<=150) targetFogDensity=0.15; else targetFogDensity=FOG_DENSITY;
-    currentFogDensity+=(targetFogDensity-currentFogDensity)*0.008;
-    scene.fog.density=currentFogDensity;
+  }
+  
+  // Obstacles
+  for(let i=liveObstacles.length-1;i>=0;i--){
+    const ob=liveObstacles[i];
+    ob.mesh.position.z=-(baseZ+ob.oz);
+    ob.mesh.position.x=ob.ox;
     
-    if(sols>0&&sols%1000===0&&sols!==lastFlashSol){
-      flashActive=true;flashProgress=0;lastFlashSol=sols;
+    const dx=ob.mesh.position.x-ob.lastPos.x;
+    const dz=ob.mesh.position.z-ob.lastPos.z;
+    const moved=Math.abs(dx)+Math.abs(dz);
+    if(moved<0.01){ob.stationaryFrames++;}
+    else{ob.stationaryFrames=0;}
+    ob.lastPos.x=ob.mesh.position.x;
+    ob.lastPos.z=ob.mesh.position.z;
+    
+    if(ob.stationaryFrames>60){
+      scene.remove(ob.mesh);
+      liveObstacles.splice(i,1);
+      continue;
     }
+    
+    if(boxesOverlap(currentX,pWZ,ob.ox,ob.mesh.position.z,COL_HX,COL_HZ))triggerCrash(null);
+  }
 
+  updateSigns(progress);tickRain(playerCar.position);
+
+  // The Constant Mountain logic
+  if(constantMountain){
     const baseZLM=curLoop*ROAD_LENGTH;
-    for(const lm of landmarks){lm.position.z=-(baseZLM+lm.userData.oz);}
     
-    updateCameraSystem(speed);
-    drawSpeedometer(speed);
-  }
-  
-  if (paused) {
-    updateCensorship();
+    if(loopCount>=1&&loopCount<=3){
+      // Maintain constant distance
+      constantMountain.position.z=-progress-mountainInitialDistance;
+    }else if(loopCount===4){
+      // Glitch - jump closer and jitter
+      const jitterX=(Math.random()-0.5)*5;
+      const jitterY=(Math.random()-0.5)*3;
+      const jitterZ=(Math.random()-0.5)*5;
+      constantMountain.position.set(150+jitterX,jitterY,-progress-150+jitterZ);
+    }else if(loopCount>4){
+      // Continue jittering
+      constantMountain.position.x=150+(Math.random()-0.5)*8;
+      constantMountain.position.y=(Math.random()-0.5)*4;
+      constantMountain.position.z=-progress-150+(Math.random()-0.5)*8;
+    }
   }
 
-  // Render Loop (Always Render) ---------------------------
+  let nearSign=false;
+  for(let si2=0;si2<NUM_SIGN_SLOTS;si2++){if(Math.abs(roadSigns[si2].position.z-(-progress))<40){nearSign=true;solsEl.textContent=roadSigns[si2].userData.text||'';
+    if(!solsEl.classList.contains('sign-mode'))solsEl.classList.add('sign-mode');break;}}
+  if(!nearSign&&solsEl.classList.contains('sign-mode'))solsEl.classList.remove('sign-mode');
+
+  // Fog event
+  const sols=Math.floor(progress/10);
+  if(sols>=100&&sols<=150)targetFogDensity=0.08;else targetFogDensity=FOG_DENSITY;
+  currentFogDensity+=(targetFogDensity-currentFogDensity)*0.008;
+  scene.fog.density=currentFogDensity;
   
-  // 1. Render Scene to VHS buffer
-  renderer.setRenderTarget(vhsRT);
-  renderer.setViewport(0,0,vhsRT.width,vhsRT.height);
-  renderer.clear();
-  renderer.render(scene,camera);
-  
-  // 2. Render Mirror (Scissor test)
+  // Magnesium Artillery Flash
+  if(sols>0&&sols%1000===0&&sols!==lastFlashSol){
+    flashActive=true;
+    flashProgress=0;
+    lastFlashSol=sols;
+  }
+
+  const baseZLM=curLoop*ROAD_LENGTH;
+  for(const lm of landmarks){lm.position.z=-(baseZLM+lm.userData.oz);}
+
+  updateCameraSystem(speed);drawSpeedometer(speed);
+
+  renderer.setRenderTarget(vhsRT);renderer.setViewport(0,0,vhsRT.width,vhsRT.height);renderer.clear();renderer.render(scene,camera);
   const mR=mirrorEl.getBoundingClientRect(),vsX=vhsRT.width/window.innerWidth,vsY=vhsRT.height/window.innerHeight;
   const mvX=Math.round(mR.left*vsX),mvY=Math.round((window.innerHeight-mR.bottom)*vsY),mvW=Math.round(mR.width*vsX),mvH=Math.round(mR.height*vsY);
-  if(mvW>0&&mvH>0){
-    // Move mirror camera to current car position even if paused to keep reflection accurate
-    // Calculate mirror cam position based on car
-    const cosH=Math.cos(heading),sinH=Math.sin(heading);
-    mirrorCam.position.set(currentX+0.2*sinH,1.05,-progress+0.2*cosH);
-    mirrorCam.lookAt(currentX+sinH*80,0.85,-progress+cosH*80);
-
-    const oF=scene.fog.density,oE=renderer.toneMappingExposure;
-    scene.fog.density=FOG_DENSITY*1.2;
-    renderer.toneMappingExposure=0.40;
-    renderer.clearDepth();
-    renderer.setViewport(mvX,mvY,mvW,mvH);
-    renderer.setScissor(mvX,mvY,mvW,mvH);
-    renderer.setScissorTest(true);
-    renderer.render(scene,mirrorCam);
-    renderer.setScissorTest(false);
-    scene.fog.density=oF;
-    renderer.toneMappingExposure=oE;
-  }
-  
-  // 3. Render VHS buffer to Screen
-  renderer.setRenderTarget(null);
-  renderer.setViewport(0,0,window.innerWidth,window.innerHeight);
-  renderer.clear();
-  vhsShader.uniforms.time.value=ts*0.001;
-  renderer.render(vhsScene,vhsCamera);
+  if(mvW>0&&mvH>0){mirrorCam.position.set(currentX+0.2*sinH,1.05,-progress+0.2*cosH);mirrorCam.lookAt(currentX+sinH*80,0.85,-progress+cosH*80);
+    const oF=scene.fog.density,oE=renderer.toneMappingExposure;scene.fog.density=FOG_DENSITY*1.2;renderer.toneMappingExposure=0.40;
+    renderer.clearDepth();renderer.setViewport(mvX,mvY,mvW,mvH);renderer.setScissor(mvX,mvY,mvW,mvH);renderer.setScissorTest(true);
+    renderer.render(scene,mirrorCam);renderer.setScissorTest(false);scene.fog.density=oF;renderer.toneMappingExposure=oE;}
+  renderer.setRenderTarget(null);renderer.setViewport(0,0,window.innerWidth,window.innerHeight);renderer.clear();vhsShader.uniforms.time.value=ts*0.001;renderer.render(vhsScene,vhsCamera);
 }
 requestAnimationFrame(frame);
 </script>
