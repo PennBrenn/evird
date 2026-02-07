@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>empty highway</title>
+<title>you are alone</title>
 <style>
   *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:default}
@@ -16,7 +16,7 @@
   #crash-overlay.active{display:flex}
   #crash-overlay .msg{color:rgba(170,165,155,0.88);font-family:'Courier New',monospace;font-size:1.05rem;letter-spacing:0.25em}
   #crash-overlay .restart{color:rgba(120,115,105,0.40);font-family:'Courier New',monospace;font-size:0.55rem;letter-spacing:0.2em;margin-top:12px}
-  #speedo{position:fixed;bottom:18px;right:18px;z-index:8;font-family:'Courier New',monospace;font-size:1.2rem;color:rgba(255,255,255,0.85);pointer-events:none;opacity:0.9;text-shadow:0 0 8px rgba(0,255,255,0.3)}
+  #speedo{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:8;font-family:'Courier New',monospace;font-size:1.2rem;color:rgba(255,255,255,0.85);pointer-events:none;opacity:0.9;text-shadow:0 0 8px rgba(0,255,255,0.3)}
   #mirror-frame{position:fixed;top:14px;left:50%;transform:translateX(-50%);width:480px;height:120px;z-index:6;pointer-events:none;border:none;background:none}
   #vhs-timestamp{position:fixed;bottom:12px;left:16px;z-index:8;font-family:'Courier New',monospace;font-size:0.85rem;color:rgba(255,255,255,0.65);pointer-events:none;user-select:none;letter-spacing:0.08em;text-shadow:1px 1px 2px rgba(0,0,0,0.8)}
   #controls{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9;font-family:'Courier New',monospace;font-size:0.7rem;color:rgba(255,255,255,0.55);pointer-events:none;user-select:none;letter-spacing:0.12em;line-height:1.8;text-align:center;transition:opacity 1.0s ease;padding:14px 28px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:3px}
@@ -41,8 +41,8 @@ const ROAD_LENGTH=400;let ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3,NUM_LANE
 const LAMP_SPACING=30,LAMP_HEIGHT=9,LAMP_ARM_REACH=4,NUM_LAMP_SLOTS=14;
 const BASE_SPEED=0,MAX_SPEED=2,MIN_SPEED=0.08,ACCEL=0.004,BRAKE=0.014,DRAG=0.0015;
 const REVERSE_MAX=-0.4;
-const STEER_SPEED_LOW=0.2;
-const STEER_SPEED_HIGH=0.008; // Much less aggressive at high speeds
+const STEER_SPEED_LOW=0.1;
+const STEER_SPEED_HIGH=0.001; // Much less aggressive at high speeds
 const STEER_SMOOTHING=0.3;
 let WALL_INNER=ROAD_WIDTH/2+2-0.85;
 const MERGE_FRAMES=120,MERGE_START_Z=60;
@@ -92,16 +92,48 @@ const vhsShader=new THREE.ShaderMaterial({
       float distortion=1.0+dist*dist*0.25; // Increased from 0.08 to 0.25 for stronger fisheye
       return centered/distortion*0.5+0.5;
     }
+    vec3 posterize(vec3 col, float levels){
+      return floor(col * levels) / levels;
+    }
+    float dither(vec2 uv, float levels){
+      float noise = rand(uv + time * 0.1);
+      return (noise - 0.5) / levels;
+    }
     void main(){
       vec2 uv=fisheye(vUv);
+      
+      // Chromatic aberration
+      float aberration = 0.002 + sin(time * 2.0) * 0.001;
+      float r = texture2D(tDiffuse, vec2(uv.x + aberration, uv.y)).r;
+      float g = texture2D(tDiffuse, uv).g;
+      float b = texture2D(tDiffuse, vec2(uv.x - aberration, uv.y)).b;
+      vec3 col = vec3(r, g, b);
+      
+      // Tape warp and jitter
       float w=sin(uv.y*90.0+time*3.5)*0.0004+sin(uv.y*220.0+time*8.0)*0.00015;
       float gs=rand(vec2(floor(time*2.5),floor(uv.y*12.0)));float gl=step(0.998,gs);w+=gl*(rand(vec2(time,uv.y))-0.5)*0.012;uv.x+=w;
-      float ab=0.0012+gl*0.005;float r=texture2D(tDiffuse,vec2(uv.x+ab,uv.y)).r;float g=texture2D(tDiffuse,uv).g;float b=texture2D(tDiffuse,vec2(uv.x-ab,uv.y)).b;
-      vec3 col=vec3(r,g,b);col-=sin(vUv.y*resolution.y*1.8)*0.015;col+=(rand(vUv+fract(time*0.7))-0.5)*0.07*grainBoost;
+      
+      // RGB shift
+      float ab=0.0012+gl*0.005; r=texture2D(tDiffuse,vec2(uv.x+ab,uv.y)).r; b=texture2D(tDiffuse,vec2(uv.x-ab,uv.y)).b;
+      
+      // Posterization with broad palette (16 levels)
+      float posterLevels = 16.0;
+      col = posterize(col, posterLevels);
+      
+      // Add dithering to prevent banding
+      float ditherAmount = dither(uv, posterLevels);
+      col += ditherAmount * 0.1;
+      
+      // Scanlines and vignette
+      col-=sin(vUv.y*resolution.y*1.8)*0.015;
+      col+=(rand(vUv+fract(time*0.7))-0.5)*0.07*grainBoost;
       col*=smoothstep(0.0,0.03,vUv.y)*smoothstep(1.0,0.97,vUv.y);
+      
+      // Color correction
       float br2=texture2D(tDiffuse,vec2(uv.x+0.0015,uv.y)).r;col.r=mix(col.r,br2,0.10);
       float lum=dot(col,vec3(0.299,0.587,0.114));col=mix(vec3(lum),col,0.86);col.r*=1.03;col.b*=0.95;
       float vig=1.0-smoothstep(0.5,1.6,length((vUv-0.5)*vec2(1.3,1.0)));col*=vig*0.93+0.07;
+      
       gl_FragColor=vec4(col,1.0);}`
 });
 const vhsScene=new THREE.Scene();const vhsCamera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
@@ -283,7 +315,7 @@ function setupLightsAndWheels(g){
   g.add(hlR);
   
   // Add visual taillight markers
-  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333,emissive:0xff0000,emissiveIntensity:1.0});  // Bright red taillights
+  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333});  // Bright red taillights
   const tlL=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.10,0.04),tlMat);
   tlL.position.set(TAILLIGHT_LEFT_X,TAILLIGHT_Y,TAILLIGHT_Z);
   tlL.rotation.x = TAILLIGHT_LEFT_ROTATION_X;
@@ -342,6 +374,21 @@ const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice
 
 // Headlight power system
 let headlightPower=1.0;
+
+// Camera shake system
+let shakeIntensity = 0;
+let shakeX = 0;
+let shakeY = 0;
+let shakeZ = 0;
+
+// Top speed boost system
+let topSpeedTimer = 0;
+let isTopSpeedBoosted = false;
+let originalMaxSpeed = MAX_SPEED;
+let deathWobble = 0;
+let deathWobbleX = 0;
+let deathWobbleY = 0;
+let deathWobbleZ = 0;
 
 // Road spray
 const SPRAY_COUNT=80;
@@ -405,41 +452,32 @@ function createWindmill(){const g=new THREE.Group();
     g.add(blade);
   }
   g.userData.blades=[];
-  return g;
-}
+  return g;}
 function createPowerLines(){const g=new THREE.Group();
-  for(let i=0;i<3;i++){
-    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.15,8,4),landmarkMat);
-    pole.position.set(i*6-6,4,0);g.add(pole);
-    const arm=new THREE.Mesh(new THREE.BoxGeometry(2.0,0.08,0.08),landmarkMat);
-    arm.position.set(i*6-6,7.8,0);g.add(arm);
-  }
-  const wireGeo=new THREE.BufferGeometry();
-  const wireVerts=[];
-  for(let w=-1;w<=1;w++){
-    for(let i=0;i<2;i++){
-      const x1=(i*6-6)+w*0.8,x2=((i+1)*6-6)+w*0.8;
-      const y=7.5;
-      wireVerts.push(x1,y,0,x2,y,0);
-    }
-  }
-  wireGeo.setAttribute('position',new THREE.Float32BufferAttribute(wireVerts,3));
-  const wireMat=new THREE.LineBasicMaterial({color:0x1a1a1a});
-  const wires=new THREE.LineSegments(wireGeo,wireMat);
-  g.add(wires);
-  return g;
-}
+  for(const x of[-8,0,8]){
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.20,12,6),landmarkMat);pole.position.set(x,6,0);g.add(pole);
+    const wire=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,20,6),landmarkMat);wire.position.set(x,11,0);wire.rotation.z=Math.PI/2;g.add(wire);}
+  return g;}
+
 function createSmallBuilding(){const g=new THREE.Group();
   const build=new THREE.Mesh(new THREE.BoxGeometry(4,6,4),landmarkMat);build.position.y=3;g.add(build);
   const roof=new THREE.Mesh(new THREE.ConeGeometry(3,2,4),landmarkMat);roof.position.y=7;roof.rotation.y=Math.PI/4;g.add(roof);return g;}
 
+function createCensoredMonument(){const g=new THREE.Group();
+  // Large mysterious structure that's always heavily censored
+  const base=new THREE.Mesh(new THREE.BoxGeometry(8,2,8),landmarkMat);base.position.y=1;g.add(base);
+  const tower=new THREE.Mesh(new THREE.BoxGeometry(4,12,4),landmarkMat);tower.position.y=7;g.add(tower);
+  const top=new THREE.Mesh(new THREE.BoxGeometry(6,3,6),landmarkMat);top.position.y=14.5;g.add(top);
+  g.userData.isCensoredMonument = true; // Mark for special censoring
+  return g;}
 
 function spawnLandmarks(loopNum){
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
   const rng=seededRNG(loopNum*3917+11);
-  const types=[createWaterTower,createBillboard,createSilo,createRadioTower,createWindmill,createPowerLines,createSmallBuilding];
+  const types=[createWaterTower,createBillboard,createSilo,createRadioTower,createWindmill,createPowerLines,createSmallBuilding,createCensoredMonument];
   for(let i=0;i<24;i++){
-    const side=(i%2===0)?1:-1;const dist=25+rng()*50;
+    const side=(i%2===0)?1:-1;
+    const dist=30+rng()*50;
     const z=rng()*ROAD_LENGTH;
     const typeIdx=Math.floor(rng()*types.length);
     const lm=types[typeIdx]();
@@ -614,8 +652,8 @@ function tickRain(anchor){const p=rainGeo.attributes.position.array;
       p[b]=x;p[b+1]=y;p[b+2]=z;p[b+3]=x+0.012;p[b+4]=y-STREAK_LEN;p[b+5]=z-0.006;}}
   rainMesh.position.copy(anchor);rainGeo.attributes.position.needsUpdate=true;}
 
-// ── Tunnels (every 400 units) ────────────────────────────────────
-const TUNNEL_SPACING=400,TUNNEL_LENGTH=60,TUNNEL_HEIGHT=8,TUNNEL_WIDTH_PAD=4;
+// ── Tunnels (every 800 units) ────────────────────────────────────
+const TUNNEL_SPACING=800,TUNNEL_LENGTH=60,TUNNEL_HEIGHT=8,TUNNEL_WIDTH_PAD=4;
 const tunnelMat=new THREE.MeshPhongMaterial({color:0x0c0c0c,specular:0x111111,shininess:5});
 const NUM_TUNNEL_SLOTS=4;
 const tunnels=[];
@@ -682,83 +720,58 @@ function updateControlsMenu(dt){
   if(controlsTimer>0){controlsTimer-=dt;if(controlsTimer<=0)controlsEl.classList.add('hidden');}
 }
 
-// ── Censor overlay system ───────────────────────────────────────
+// ── Simple Censoring System ───────────────────────────────────────
 const censorContainer=document.getElementById('censor-container');
+
 function clearCensors(){censorContainer.innerHTML='';}
-function projectToScreen(worldPos,cam){
-  const v=worldPos.clone().project(cam);
-  return{
-    x:(v.x*0.5+0.5)*window.innerWidth,
-    y:(-v.y*0.5+0.5)*window.innerHeight,
-    z:v.z
-  };
-}
-function addCensorRect(x,y,w,h){
-  const el=document.createElement('div');el.className='censor-rect';
-  el.style.left=(x-w/2)+'px';el.style.top=(y-h/2)+'px';
-  el.style.width=w+'px';el.style.height=h+'px';
+
+function addCensorBox(x,y,w,h){
+  const el=document.createElement('div');
+  el.className='censor-rect';
+  el.style.left=(x-w/2)+'px';
+  el.style.top=(y-h/2)+'px';
+  el.style.width=w+'px';
+  el.style.height=h+'px';
   censorContainer.appendChild(el);
 }
+
 function updateCensors(){
   clearCensors();
+  
+  // Always censor road signs
+  for(const sign of roadSigns){
+    if(!sign.visible)continue;
+    const pos=sign.position.clone().project(camera);
+    if(pos.z<0||pos.z>1)continue;
+    const x=pos.x*window.innerWidth/2+window.innerWidth/2;
+    const y=-(pos.y*window.innerHeight/2)+window.innerHeight/2;
+    const size=80;
+    addCensorBox(x,y,size,size);
+  }
+  
+  // Only censor cars when paused
   if(!paused)return;
-  const cam=camera;
-  for(const gh of ghosts){
-    if(!gh.mesh.visible)continue;
-    const wp=new THREE.Vector3();gh.mesh.getWorldPosition(wp);
-    const sp=projectToScreen(wp,cam);
-    if(sp.z<0||sp.z>1)continue;
-    const dist=cam.position.distanceTo(wp);
-    const size=Math.max(40,Math.min(220,600/dist));
-    addCensorRect(sp.x,sp.y,size,size);
+  
+  // Censor ghosts
+  for(const ghost of ghosts){
+    if(!ghost.mesh.visible)continue;
+    const pos=ghost.mesh.position.clone().project(camera);
+    if(pos.z<0||pos.z>1)continue;
+    const x=pos.x*window.innerWidth/2+window.innerWidth/2;
+    const y=-(pos.y*window.innerHeight/2)+window.innerHeight/2;
+    const size=100;
+    addCensorBox(x,y,size,size);
   }
-  for(const ob of liveObstacles){
-    if(!ob.mesh||!ob.mesh.visible)continue;
-    const wp=new THREE.Vector3();ob.mesh.getWorldPosition(wp);
-    const sp=projectToScreen(wp,cam);
-    if(sp.z<0||sp.z>1)continue;
-    const dist=cam.position.distanceTo(wp);
-    const size=Math.max(40,Math.min(220,600/dist));
-    addCensorRect(sp.x,sp.y,size,size);
-  }
-  if(stalker.visible){
-    const wp=new THREE.Vector3();stalker.getWorldPosition(wp);
-    const sp=projectToScreen(wp,cam);
-    if(sp.z>=0&&sp.z<=1){
-      const dist=cam.position.distanceTo(wp);
-      const size=Math.max(40,Math.min(220,600/dist));
-      addCensorRect(sp.x,sp.y,size,size);
-    }
-  }
-  // Mirror censors
-  const mR=mirrorEl.getBoundingClientRect();
-  if(mR.width>0&&mR.height>0){
-    const mCam=mirrorCam;
-    for(const gh of ghosts){
-      if(!gh.mesh.visible)continue;
-      const wp=new THREE.Vector3();gh.mesh.getWorldPosition(wp);
-      const sp=projectToScreen(wp,mCam);
-      if(sp.z<0||sp.z>1)continue;
-      const mx=mR.left+sp.x/window.innerWidth*mR.width;
-      const my=mR.top+sp.y/window.innerHeight*mR.height;
-      if(mx<mR.left||mx>mR.right||my<mR.top||my>mR.bottom)continue;
-      const dist=mCam.position.distanceTo(wp);
-      const size=Math.max(20,Math.min(80,200/dist));
-      addCensorRect(mx,my,size,size);
-    }
-    if(stalker.visible){
-      const wp=new THREE.Vector3();stalker.getWorldPosition(wp);
-      const sp=projectToScreen(wp,mCam);
-      if(sp.z>=0&&sp.z<=1){
-        const mx=mR.left+sp.x/window.innerWidth*mR.width;
-        const my=mR.top+sp.y/window.innerHeight*mR.height;
-        if(mx>=mR.left&&mx<=mR.right&&my>=mR.top&&my<=mR.bottom){
-          const dist=mCam.position.distanceTo(wp);
-          const size=Math.max(20,Math.min(80,200/dist));
-          addCensorRect(mx,my,size,size);
-        }
-      }
-    }
+  
+  // Censor obstacles
+  for(const obstacle of liveObstacles){
+    if(!obstacle.mesh.visible)continue;
+    const pos=obstacle.mesh.position.clone().project(camera);
+    if(pos.z<0||pos.z>1)continue;
+    const x=pos.x*window.innerWidth/2+window.innerWidth/2;
+    const y=-(pos.y*window.innerHeight/2)+window.innerHeight/2;
+    const size=80;
+    addCensorBox(x,y,size,size);
   }
 }
 
@@ -817,6 +830,43 @@ function cycleCamera(){
 function updateCameraSystem(spd){
   const cosH=Math.cos(heading),sinH=Math.sin(heading),sf=Math.abs(spd)/MAX_SPEED;
   
+  // Update shake based on speed
+  const absSpeed = Math.abs(spd);
+  const speedRatio = absSpeed / MAX_SPEED;
+  
+  // Regular shake for high speeds
+  if(speedRatio > 0.9){ // Start shaking at 90% of max speed
+    shakeIntensity = Math.min((speedRatio - 0.9) * 10, 1.0); // Max intensity at top speed
+    shakeX = (Math.random() - 0.5) * shakeIntensity * 0.15;
+    shakeY = (Math.random() - 0.5) * shakeIntensity * 0.1;
+    shakeZ = (Math.random() - 0.5) * shakeIntensity * 0.1;
+  } else {
+    shakeIntensity *= 0.9; // Smooth decay
+    shakeX *= 0.9;
+    shakeY *= 0.9;
+    shakeZ *= 0.9;
+  }
+  
+  // Extreme shake for boosted top speed
+  if(isTopSpeedBoosted){
+    shakeIntensity = 1.0; // Maximum intensity
+    shakeX = (Math.random() - 0.5) * 0.4; // Much more aggressive
+    shakeY = (Math.random() - 0.5) * 0.3;
+    shakeZ = (Math.random() - 0.5) * 0.3;
+    
+    // Death wobble effect
+    deathWobble += 0.3;
+    deathWobbleX = Math.sin(deathWobble * 8) * 0.2;
+    deathWobbleY = Math.sin(deathWobble * 6) * 0.15;
+    deathWobbleZ = Math.cos(deathWobble * 10) * 0.1;
+  } else {
+    // Decay death wobble
+    deathWobble *= 0.92;
+    deathWobbleX *= 0.92;
+    deathWobbleY *= 0.92;
+    deathWobbleZ *= 0.92;
+  }
+  
   // Smooth mouse look with lerp (both modes)
   mouseLookYaw+=(targetYaw-mouseLookYaw)*LOOK_LERP;
   mouseLookPitch+=(targetPitch-mouseLookPitch)*LOOK_LERP;
@@ -825,9 +875,9 @@ function updateCameraSystem(spd){
     
     // First person: camera on hood, car visible
     camera.position.set(
-      currentX+FIRST_PERSON_OFFSET_X*cosH+FIRST_PERSON_OFFSET_Z*sinH,
-      FIRST_PERSON_OFFSET_Y,
-      -progress+(-FIRST_PERSON_OFFSET_X*sinH+FIRST_PERSON_OFFSET_Z*cosH)
+      currentX+FIRST_PERSON_OFFSET_X*cosH+FIRST_PERSON_OFFSET_Z*sinH + shakeX + deathWobbleX,
+      FIRST_PERSON_OFFSET_Y + shakeY + deathWobbleY,
+      -progress+(-FIRST_PERSON_OFFSET_X*sinH+FIRST_PERSON_OFFSET_Z*cosH) + shakeZ + deathWobbleZ
     );
     
     // Look direction with mouse offset
@@ -858,9 +908,9 @@ function updateCameraSystem(spd){
     // Smooth position with slight lag for force feel
     const posLerp=0.07+sf*0.05;
     if(!cam3I){cam3P.set(anchorX,camHeight,anchorZ);cam3I=true;}
-    cam3P.x+=(anchorX-cam3P.x)*posLerp;
-    cam3P.y+=(camHeight-cam3P.y)*posLerp;
-    cam3P.z+=(anchorZ-cam3P.z)*posLerp;
+    cam3P.x+=(anchorX-cam3P.x)*posLerp + shakeX + deathWobbleX;
+    cam3P.y+=(camHeight-cam3P.y)*posLerp + shakeY + deathWobbleY;
+    cam3P.z+=(anchorZ-cam3P.z)*posLerp + shakeZ + deathWobbleZ;
     camera.position.copy(cam3P);
     
     // Look direction: default forward along car heading, mouse rotates view
@@ -1001,6 +1051,16 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   controlsTimer=5.0;controlsEl.classList.remove('hidden');
   clearCensors();
   vhsClockAcc=0;
+  
+  // Reset top speed boost system
+  topSpeedTimer = 0;
+  isTopSpeedBoosted = false;
+  MAX_SPEED = originalMaxSpeed;
+  deathWobble = 0;
+  deathWobbleX = 0;
+  deathWobbleY = 0;
+  deathWobbleZ = 0;
+  
   exitLock();setCursorLocked(false);
 }
 
@@ -1032,8 +1092,9 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     }
   }
   
+  updateCensors(); // Always update censors for road signs and monuments
+  
   if(paused||crashed){
-    updateCensors();
     renderer.setRenderTarget(vhsRT);renderer.setViewport(0,0,vhsRT.width,vhsRT.height);renderer.clear();renderer.render(scene,camera);
     // Mirror still renders on pause
     const cosHP=Math.cos(heading),sinHP=Math.sin(heading);
@@ -1063,6 +1124,17 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   const absSpeed=Math.abs(speed);
   const speedFactor=Math.min(absSpeed/MAX_SPEED,1.0);
   const steerRate=STEER_SPEED_LOW+(STEER_SPEED_HIGH-STEER_SPEED_LOW)*speedFactor;
+  
+  // Track top speed time for boost activation
+  if(absSpeed >= MAX_SPEED * 0.98){ // At or near top speed
+    topSpeedTimer += dt;
+    if(topSpeedTimer >= 5.0 && !isTopSpeedBoosted){ // 5 seconds at top speed
+      isTopSpeedBoosted = true;
+      MAX_SPEED = originalMaxSpeed * 2; // Double the max speed
+    }
+  } else {
+    topSpeedTimer = Math.max(0, topSpeedTimer - dt * 2); // Decay faster when not at top speed
+  }
   
   const steerDir=speed>=0?1:-1;
   heading-=currentSteerInput*steerDir*steerRate*absSpeed;
@@ -1129,8 +1201,9 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   }
 
   const baseZ=curLoop*ROAD_LENGTH,cosH=Math.cos(heading),sinH=Math.sin(heading);
-  playerCar.position.set(currentX,0,-progress);playerCar.rotation.y=heading;
-  carPitch=lerp(carPitch,(speed-prevSpeed)*2.5,0.10);playerCar.rotation.x=carPitch;
+  playerCar.position.set(currentX + shakeX * 0.5 + deathWobbleX * 0.3, shakeY * 0.3 + deathWobbleY * 0.2, -progress + shakeZ * 0.5 + deathWobbleZ * 0.3);
+  playerCar.rotation.y=heading + shakeX * 0.02 + deathWobbleX * 0.05; // Add rotation shake
+  carPitch=lerp(carPitch,(speed-prevSpeed)*2.5,0.10);playerCar.rotation.x=carPitch + shakeY * 0.01 + deathWobbleY * 0.02;
 
   // Headlight intensity (solid, no flickering)
   let hlIntensity=200*headlightPower; // Solid reliable light
@@ -1197,11 +1270,12 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     // Hide ghosts when stalker is active
     gh.mesh.visible=mirrorDissonanceActive;
     
-    if(gh.isStationary()){
-      scene.remove(gh.mesh);
-      ghosts.splice(i,1);
-      continue;
-    }
+    // Remove stationary ghosts - DISABLED to allow continuous looping
+    // if(gh.isStationary()){
+    //   scene.remove(gh.mesh);
+    //   ghosts.splice(i,1);
+    //   continue;
+    // }
     
     if(gh.merged){
       const gp=gh.getWorldXZ();
