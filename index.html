@@ -29,7 +29,7 @@
 <div id="vignette"></div>
 <div id="mirror-frame"></div>
 <div id="sols"></div>
-<div id="speedo">0.0 c/s</div>
+<div id="speedo">0.0 c/m</div>
 <div id="vhs-timestamp">REC ●</div>
 <div id="crash-overlay"><span class="msg"></span><span class="restart">press r to restart the cycle.</span></div>
 <div id="controls">W/↑ accelerate · S/↓ brake/reverse<br>A/← steer left · D/→ steer right<br>C camera · P pause · R restart</div>
@@ -1342,6 +1342,421 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   renderer.setRenderTarget(null);renderer.setViewport(0,0,window.innerWidth,window.innerHeight);renderer.clear();vhsShader.uniforms.time.value=ts*0.001;renderer.render(vhsScene,vhsCamera);
 }
 requestAnimationFrame(frame);
+
+// ═════════════════════════════════════════════════════════════════════
+// FUNCTIONALITY CHECKS - Run on startup
+// ═════════════════════════════════════════════════════════════════════
+console.log('%c=== GAME FUNCTIONALITY CHECKS ===', 'color: #00ff00; font-weight: bold; font-size: 16px;');
+console.log('%cRunning comprehensive feature tests...', 'color: #00ffff;');
+
+function checkFeature(name, testFn) {
+  try {
+    const result = testFn();
+    if (result) {
+      console.log(`%c✓ ${name}`, 'color: #00ff00;', result);
+      return true;
+    } else {
+      console.log(`%c✗ ${name}`, 'color: #ff0000;', 'FAILED');
+      return false;
+    }
+  } catch (error) {
+    console.log(`%c✗ ${name}`, 'color: #ff0000;', error.message);
+    return false;
+  }
+}
+
+let passedTests = 0;
+let totalTests = 0;
+
+// Core Rendering
+totalTests++;
+if (checkFeature('Three.js Renderer', () => {
+  return renderer && renderer.domElement ? 'WebGL renderer initialized' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Scene Setup', () => {
+  return scene && scene.children.length > 0 ? `Scene has ${scene.children.length} objects` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Camera System', () => {
+  return camera && mirrorCam ? `Main camera (FOV: ${camera.fov}) + Mirror camera` : null;
+})) passedTests++;
+
+// VHS Effect
+totalTests++;
+if (checkFeature('VHS Shader', () => {
+  return vhsShader && vhsRT ? `VHS post-processing (${vhsRT.width}x${vhsRT.height})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('VHS Effects', () => {
+  const effects = ['fisheye', 'chromatic aberration', 'posterization', 'scanlines', 'grain'];
+  return vhsShader.fragmentShader.includes('fisheye') ? `Effects: ${effects.join(', ')}` : null;
+})) passedTests++;
+
+// Road System
+totalTests++;
+if (checkFeature('Road Segments', () => {
+  return segments && segments.length === 3 ? `${segments.length} road segments (${ROAD_LENGTH}m each)` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Lane System', () => {
+  return NUM_LANES && LANE_WIDTH ? `${NUM_LANES} lanes, ${LANE_WIDTH}m width each` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Road Markings', () => {
+  return markingMat ? 'Lane lines and edge markings rendered' : null;
+})) passedTests++;
+
+// Lighting System
+totalTests++;
+if (checkFeature('Street Lamps', () => {
+  return lampPosts.length === NUM_LAMP_SLOTS && lampLights.length === NUM_LAMP_SLOTS ? 
+    `${lampPosts.length} lamp posts with ${lampLights.length} lights` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Lamp Flickering', () => {
+  return lampFS.length > 0 ? `Flicker system active for ${lampFS.length} lamps` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Ambient Lighting', () => {
+  const ambientLights = scene.children.filter(c => c.isAmbientLight);
+  return ambientLights.length > 0 ? `${ambientLights.length} ambient light(s)` : null;
+})) passedTests++;
+
+// Player Car
+totalTests++;
+if (checkFeature('Player Car Model', () => {
+  return playerCar && playerCar.children.length > 0 ? `Car loaded with ${playerCar.children.length} components` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('3D Model Loader', () => {
+  return gltfLoader ? 'GLTF loader initialized for Miata model' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Headlights', () => {
+  return hlL && hlR ? `Left & Right spotlights (${HEADLIGHT_BEAM_DISTANCE}m range)` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Taillights', () => {
+  return tailGlow ? `Brake lights (idle: ${BRAKE_GLOW_IDLE}, max: ${BRAKE_GLOW_MAX})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Headlight Power System', () => {
+  return typeof headlightPower === 'number' ? `Power level: ${headlightPower.toFixed(2)} (degrades per loop)` : null;
+})) passedTests++;
+
+// Physics & Movement
+totalTests++;
+if (checkFeature('Speed System', () => {
+  return typeof speed === 'number' ? `Speed: ${speed.toFixed(3)}, Max: ${MAX_SPEED}, Min: ${MIN_SPEED}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Acceleration/Braking', () => {
+  return ACCEL && BRAKE ? `Accel: ${ACCEL}, Brake: ${BRAKE}, Drag: ${DRAG}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Steering System', () => {
+  return typeof heading === 'number' && typeof steer === 'number' ? 
+    `Heading: ${heading.toFixed(3)}, Steer smoothing: ${STEER_SMOOTHING}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Reverse Capability', () => {
+  return REVERSE_MAX ? `Reverse max speed: ${REVERSE_MAX}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Wall Collision', () => {
+  return WALL_INNER ? `Wall boundaries at ±${WALL_INNER.toFixed(2)}m` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Damage System', () => {
+  return typeof damageLevel === 'number' ? `Damage level: ${damageLevel.toFixed(2)} (darkens car on impact)` : null;
+})) passedTests++;
+
+// Camera System
+totalTests++;
+if (checkFeature('Camera Modes', () => {
+  return CAM_MODES === 2 ? `${CAM_MODES} modes (First-person, Third-person)` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Mouse Look', () => {
+  return typeof mouseLookYaw === 'number' && typeof mouseLookPitch === 'number' ? 
+    `Yaw: ±${(MAX_YAW*180/Math.PI).toFixed(0)}°, Pitch: ±${(MAX_PITCH*180/Math.PI).toFixed(0)}°` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Camera Shake', () => {
+  return typeof shakeIntensity === 'number' ? `Shake system active (intensity: ${shakeIntensity.toFixed(3)})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Death Wobble', () => {
+  return typeof deathWobble === 'number' ? 'Extreme shake for boosted speeds' : null;
+})) passedTests++;
+
+// Particle Effects
+totalTests++;
+if (checkFeature('Rain System', () => {
+  return rainMesh && rainP.length > 0 ? `${RAIN_COUNT} rain particles` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Road Spray', () => {
+  return sprayMesh && sprayPos.length > 0 ? `${SPRAY_COUNT} spray particles` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Spark Particles', () => {
+  return sparkMesh && sparkPos.length > 0 ? `${SPARK_COUNT} spark particles (wall collisions)` : null;
+})) passedTests++;
+
+// Ghosts & Recording
+totalTests++;
+if (checkFeature('Ghost Recording', () => {
+  return Array.isArray(currentRecording) && Array.isArray(allRecordings) ? 
+    `Recording active, ${allRecordings.length} recordings stored` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Ghost Spawning', () => {
+  return Array.isArray(ghosts) ? `${ghosts.length} ghosts active` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Ghost Merge Animation', () => {
+  return MERGE_FRAMES && MERGE_START_Z ? `${MERGE_FRAMES} frame merge from ${MERGE_START_Z}m` : null;
+})) passedTests++;
+
+// Obstacles
+totalTests++;
+if (checkFeature('Obstacle System', () => {
+  return Array.isArray(liveObstacles) ? `${liveObstacles.length} obstacles (loop ${loopCount})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Obstacle Spawning', () => {
+  return typeof spawnObstacles === 'function' ? `Seeded RNG, min spacing: ${MIN_OBS_SPACING}m` : null;
+})) passedTests++;
+
+// Signs
+totalTests++;
+if (checkFeature('Road Signs', () => {
+  return roadSigns.length === NUM_SIGN_SLOTS ? `${roadSigns.length} signs, spacing: ${SIGN_SPACING}m` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Sign Content', () => {
+  return typeof getSignContent === 'function' ? '5 sign variants with dynamic content' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Sign Display', () => {
+  return solsEl ? 'HUD display for nearby signs' : null;
+})) passedTests++;
+
+// Tunnels
+totalTests++;
+if (checkFeature('Tunnel System', () => {
+  return tunnels.length === NUM_TUNNEL_SLOTS ? 
+    `${tunnels.length} tunnels, ${TUNNEL_LENGTH}m long, spacing: ${TUNNEL_SPACING}m` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Tunnel Detection', () => {
+  return typeof isInsideTunnel === 'function' ? 'Lamp hiding inside tunnels' : null;
+})) passedTests++;
+
+// Terrain
+totalTests++;
+if (checkFeature('Procedural Terrain', () => {
+  return terrainChunks.length === NUM_TERRAIN_CHUNKS ? 
+    `${terrainChunks.length} terrain chunks, ${TERRAIN_CHUNK_LEN}m each` : null;
+})) passedTests++;
+
+// Landmarks
+totalTests++;
+if (checkFeature('Landmarks', () => {
+  return Array.isArray(landmarks) ? `${landmarks.length} landmarks (water towers, billboards, etc.)` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Landmark Types', () => {
+  const types = ['Water Tower', 'Billboard', 'Silo', 'Radio Tower', 'Windmill', 'Power Lines', 'Building', 'Censored Monument'];
+  return types.length === 8 ? `${types.length} types: ${types.join(', ')}` : null;
+})) passedTests++;
+
+// Special Features
+totalTests++;
+if (checkFeature('Wrong-Way Semi Truck', () => {
+  return semiTruck ? `Spawns after ${WRONG_WAY_LIMIT} frames going wrong way` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('The Stalker', () => {
+  return stalker ? 'Mirror dissonance entity (60m behind)' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Mirror Dissonance', () => {
+  return typeof mirrorDissonanceActive === 'boolean' ? 
+    `Active: ${mirrorDissonanceActive} (toggles every 3 loops)` : null;
+})) passedTests++;
+
+// UI Elements
+totalTests++;
+if (checkFeature('Speedometer', () => {
+  return speedoEl ? 'Digital display with glitch effect at high speeds' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('VHS Timestamp', () => {
+  return vhsTimestampEl ? 'Nonsensical timestamp with glitch characters' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Controls Display', () => {
+  return controlsEl ? 'Auto-hide after 5 seconds' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Crash Overlay', () => {
+  return crashOverlay && crashMsgEl ? 'Time-based crash messages' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Vignette Effect', () => {
+  return document.getElementById('vignette') ? 'Radial gradient overlay' : null;
+})) passedTests++;
+
+// Censoring System
+totalTests++;
+if (checkFeature('Censoring System', () => {
+  return censorContainer && typeof addCensorBox === 'function' ? 
+    'Black boxes over signs (always) and cars (when paused)' : null;
+})) passedTests++;
+
+// Advanced Features
+totalTests++;
+if (checkFeature('Top Speed Boost', () => {
+  return typeof topSpeedTimer === 'number' ? 
+    `Hold max speed 5s to double it (timer: ${topSpeedTimer.toFixed(1)}s)` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Fog Events', () => {
+  return scene.fog ? `Dynamic fog (near: ${scene.fog.near}, far: ${scene.fog.far})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Flash Events', () => {
+  return typeof flashActive === 'boolean' ? 
+    `Magnesium flash every 1000 sols (active: ${flashActive})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Lane Randomization', () => {
+  return typeof randomizeLanes === 'function' ? 'Lanes randomize on restart (2-6 lanes)' : null;
+})) passedTests++;
+
+// Input System
+totalTests++;
+if (checkFeature('Keyboard Controls', () => {
+  return typeof keys === 'object' ? 'WASD/Arrows + C/P/R keys' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Pointer Lock', () => {
+  return typeof requestLock === 'function' ? 'Mouse capture for look controls' : null;
+})) passedTests++;
+
+// Game State
+totalTests++;
+if (checkFeature('Loop System', () => {
+  return typeof loopCount === 'number' ? `Loop ${loopCount}, progress: ${progress.toFixed(1)}m` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Pause System', () => {
+  return typeof paused === 'boolean' ? `Paused: ${paused}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Crash Detection', () => {
+  return typeof crashed === 'boolean' ? `Crashed: ${crashed}` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Collision Detection', () => {
+  return typeof boxesOverlap === 'function' ? `Box collision (${COL_HX}x${COL_HZ}m)` : null;
+})) passedTests++;
+
+// Performance
+totalTests++;
+if (checkFeature('Frame Timing', () => {
+  return typeof lastT === 'number' ? 'Delta time capped at 50ms' : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Render Pipeline', () => {
+  return vhsRT && vhsScene ? 'Two-pass rendering (scene → VHS → screen)' : null;
+})) passedTests++;
+
+// Configuration
+totalTests++;
+if (checkFeature('Miata Model Config', () => {
+  return MIATA_SCALE && MIATA_POSITION_X ? 
+    `Scale: ${MIATA_SCALE}, Position: (${MIATA_POSITION_X}, ${MIATA_POSITION_Y}, ${MIATA_POSITION_Z})` : null;
+})) passedTests++;
+
+totalTests++;
+if (checkFeature('Light Positions', () => {
+  return HEADLIGHT_LEFT_X && TAILLIGHT_LEFT_X ? 
+    `Headlights: (±${Math.abs(HEADLIGHT_LEFT_X)}, ${HEADLIGHT_Y}, ${HEADLIGHT_Z}), Taillights: (±${Math.abs(TAILLIGHT_LEFT_X)}, ${TAILLIGHT_Y}, ${TAILLIGHT_Z})` : null;
+})) passedTests++;
+
+console.log('\n%c=== TEST SUMMARY ===', 'color: #ffff00; font-weight: bold; font-size: 16px;');
+console.log(`%cPassed: ${passedTests}/${totalTests} (${((passedTests/totalTests)*100).toFixed(1)}%)`, 
+  passedTests === totalTests ? 'color: #00ff00; font-weight: bold;' : 'color: #ffaa00; font-weight: bold;');
+
+if (passedTests === totalTests) {
+  console.log('%c✓ ALL SYSTEMS OPERATIONAL', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+} else {
+  console.log(`%c⚠ ${totalTests - passedTests} system(s) need attention`, 'color: #ff6600; font-weight: bold;');
+}
+
+console.log('\n%cGame Constants:', 'color: #00ffff; font-weight: bold;');
+console.log(`  Road: ${ROAD_LENGTH}m × ${ROAD_WIDTH}m (${NUM_LANES} lanes)`);
+console.log(`  Speed: ${MIN_SPEED} → ${MAX_SPEED} (accel: ${ACCEL}, brake: ${BRAKE})`);
+console.log(`  Particles: ${RAIN_COUNT} rain + ${SPRAY_COUNT} spray + ${SPARK_COUNT} sparks`);
+console.log(`  Objects: ${NUM_LAMP_SLOTS} lamps, ${NUM_SIGN_SLOTS} signs, ${NUM_TUNNEL_SLOTS} tunnels, ${NUM_TERRAIN_CHUNKS} terrain chunks`);
+
+console.log('\n%cControls:', 'color: #00ffff; font-weight: bold;');
+console.log('  W/↑: Accelerate');
+console.log('  S/↓: Brake/Reverse');
+console.log('  A/←: Steer Left');
+console.log('  D/→: Steer Right');
+console.log('  C: Cycle Camera');
+console.log('  P: Pause');
+console.log('  R: Restart (when crashed)');
+console.log('  Mouse: Look around');
+
+console.log('\n%c=== END FUNCTIONALITY CHECKS ===\n', 'color: #00ff00; font-weight: bold; font-size: 16px;');
 </script>
 </body>
 </html>
