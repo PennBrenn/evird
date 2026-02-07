@@ -16,8 +16,8 @@
   #crash-overlay.active{display:flex}
   #crash-overlay .msg{color:rgba(170,165,155,0.88);font-family:'Courier New',monospace;font-size:1.05rem;letter-spacing:0.25em}
   #crash-overlay .restart{color:rgba(120,115,105,0.40);font-family:'Courier New',monospace;font-size:0.55rem;letter-spacing:0.2em;margin-top:12px}
-  #speedo{position:fixed;bottom:18px;right:18px;z-index:8;width:110px;height:110px;pointer-events:none;opacity:0.75}
-  #mirror-frame{position:fixed;top:14px;left:50%;transform:translateX(-50%);width:360px;height:92px;z-index:6;pointer-events:none;border:none;background:none}
+  #speedo{position:fixed;bottom:18px;right:18px;z-index:8;font-family:'Courier New',monospace;font-size:1.2rem;color:rgba(255,255,255,0.85);pointer-events:none;opacity:0.9;text-shadow:0 0 8px rgba(0,255,255,0.3)}
+  #mirror-frame{position:fixed;top:14px;left:50%;transform:translateX(-50%);width:480px;height:120px;z-index:6;pointer-events:none;border:none;background:none}
   #vhs-timestamp{position:fixed;bottom:12px;left:16px;z-index:8;font-family:'Courier New',monospace;font-size:0.85rem;color:rgba(255,255,255,0.65);pointer-events:none;user-select:none;letter-spacing:0.08em;text-shadow:1px 1px 2px rgba(0,0,0,0.8)}
   #controls{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9;font-family:'Courier New',monospace;font-size:0.7rem;color:rgba(255,255,255,0.55);pointer-events:none;user-select:none;letter-spacing:0.12em;line-height:1.8;text-align:center;transition:opacity 1.0s ease;padding:14px 28px;background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:3px}
   #controls.hidden{opacity:0}
@@ -29,7 +29,7 @@
 <div id="vignette"></div>
 <div id="mirror-frame"></div>
 <div id="sols"></div>
-<canvas id="speedo" width="160" height="160"></canvas>
+<div id="speedo">0.0 c/s</div>
 <div id="vhs-timestamp">REC ●</div>
 <div id="crash-overlay"><span class="msg"></span><span class="restart">press r to restart the cycle.</span></div>
 <div id="controls">W/↑ accelerate · S/↓ brake/reverse<br>A/← steer left · D/→ steer right<br>C camera · P pause · R restart</div>
@@ -37,16 +37,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
-const ROAD_LENGTH=1000;let ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3,NUM_LANES=4;
-const LAMP_SPACING=40,LAMP_HEIGHT=9,LAMP_ARM_REACH=3.5,NUM_LAMP_SLOTS=14;
-const BASE_SPEED=0.45,MAX_SPEED=1.0,MIN_SPEED=0.08,ACCEL=0.007,BRAKE=0.014,DRAG=0.0015;
+const ROAD_LENGTH=400;let ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3,NUM_LANES=4;
+const LAMP_SPACING=30,LAMP_HEIGHT=9,LAMP_ARM_REACH=4,NUM_LAMP_SLOTS=14;
+const BASE_SPEED=0,MAX_SPEED=2,MIN_SPEED=0.08,ACCEL=0.004,BRAKE=0.014,DRAG=0.0015;
 const REVERSE_MAX=-0.4;
-const STEER_SPEED_LOW=0.1;
-const STEER_SPEED_HIGH=0.005; // Much less aggressive at high speeds
+const STEER_SPEED_LOW=0.2;
+const STEER_SPEED_HIGH=0.008; // Much less aggressive at high speeds
 const STEER_SMOOTHING=0.3;
 let WALL_INNER=ROAD_WIDTH/2+2-0.85;
 const MERGE_FRAMES=120,MERGE_START_Z=60;
-const RAIN_COUNT=5000,RAIN_SPREAD=100,RAIN_HEIGHT=26,STREAK_LEN=0.25;
+const RAIN_COUNT=10000,RAIN_SPREAD=100,RAIN_HEIGHT=26,STREAK_LEN=0.25;
 const COL_HX=0.85,COL_HZ=2.2,WHEEL_R=0.29,MIN_OBS_SPACING=ROAD_WIDTH*2;
 const SIGN_SPACING=400,NUM_SIGN_SLOTS=5,VHS_SCALE=0.50;
 
@@ -58,10 +58,11 @@ renderer.physicallyCorrectLights=true;renderer.autoClear=false;
 document.body.appendChild(renderer.domElement);
 const scene=new THREE.Scene();scene.background=new THREE.Color(0x010102);
 scene.fog=new THREE.Fog(0x010102,20,50);
-const camera=new THREE.PerspectiveCamera(66,window.innerWidth/window.innerHeight,0.1,600);
+const camera=new THREE.PerspectiveCamera(66,window.innerWidth/window.innerHeight,0.001,600); // Ultra-small near plane for extreme angles
 camera.layers.enable(0); // Enable default layer for player car visibility
 camera.layers.enable(1);
 camera.layers.enable(2);
+camera.layers.enableAll(); // Enable all layers to ensure car is always visible
 const mirrorCam=new THREE.PerspectiveCamera(58,1,0.5,280);
 mirrorCam.layers.set(0);
 mirrorCam.layers.enable(1);
@@ -72,8 +73,8 @@ const FIRST_PERSON_OFFSET_X = 0;        // First person camera X offset from car
 const FIRST_PERSON_OFFSET_Y = 1.6;     // First person camera Y height (raised to prevent car disappearing)
 const FIRST_PERSON_OFFSET_Z = -1.2;     // First person camera Z offset (behind hood)
 const MIRROR_CAM_OFFSET_X = 0.2;        // Mirror camera X offset
-const MIRROR_CAM_OFFSET_Y = 1.05;        // Mirror camera Y height
-const MIRROR_CAM_OFFSET_Z = 0.2;        // Mirror camera Z offset
+const MIRROR_CAM_OFFSET_Y = 1.25;        // Mirror camera Y height (raised)
+const MIRROR_CAM_OFFSET_Z = 0.5;        // Mirror camera Z offset (moved back)
 const MIRROR_CAM_LOOK_AHEAD = 80;       // Mirror camera look-ahead distance
 
 scene.add(new THREE.AmbientLight(0x14141e,0.24));
@@ -88,7 +89,7 @@ const vhsShader=new THREE.ShaderMaterial({
     vec2 fisheye(vec2 uv){
       vec2 centered=uv*2.0-1.0;
       float dist=length(centered);
-      float distortion=1.0+dist*dist*0.08;
+      float distortion=1.0+dist*dist*0.25; // Increased from 0.08 to 0.25 for stronger fisheye
       return centered/distortion*0.5+0.5;
     }
     void main(){
@@ -195,6 +196,7 @@ function createSedan(colour){
     clone.traverse(child=>{
       if(child.isMesh){
         child.material=child.material.clone();
+        child.material.side=THREE.DoubleSide; // Make visible from inside
         if(child.name==='Body'||child.userData.isBody){
           child.material.color.setHex(colour);
         }
@@ -231,12 +233,16 @@ function createSedan(colour){
             child.userData.isBody=true;
             child.material=child.material.clone();
             child.material.color.setHex(colour);
+            child.material.side=THREE.DoubleSide; // Make visible from inside
           }
           // Mark wheels (adjust names to match your model)
           if(child.name.toLowerCase().includes('wheel')||
              child.name.toLowerCase().includes('tire')){
             child.userData.isWheel=true;
+            child.material.side=THREE.DoubleSide; // Make visible from inside
           }
+          // Make all parts double-sided for interior visibility
+          child.material.side=THREE.DoubleSide;
         }
       });
       
@@ -253,7 +259,7 @@ function createSedan(colour){
       // Fallback to simple box if model fails to load
       const fallback=new THREE.Mesh(
         new THREE.BoxGeometry(1.7,0.8,4.0),
-        new THREE.MeshPhongMaterial({color:colour,specular:0x666666,shininess:115})
+        new THREE.MeshPhongMaterial({color:colour,specular:0x666666,shininess:115,side:THREE.DoubleSide})
       );
       fallback.position.y=0.5;
       g.add(fallback);
@@ -320,7 +326,7 @@ playerCar.traverse(c=>{if(c.isMesh){c.layers.set(0);}}); // Set player car to de
 
 function makeHeadlight(){const pl=new THREE.SpotLight(0xfff2da,200,300,Math.PI/4,0.3,2.0);scene.add(pl);return pl;} // NOTE: Make brighter by increasing intensity (currently 200, was 800) - Wider angle, brighter beam
 const hlL=makeHeadlight(),hlR=makeHeadlight();
-const tailGlow=new THREE.PointLight(0xaa0000,1,12,2);scene.add(tailGlow); // NOTE: Make brighter by increasing intensity (currently 1, was 3) - Centered taillights
+const tailGlow=new THREE.SpotLight(0xaa0000,1,12,Math.PI/4,0.5,2.0);scene.add(tailGlow); // NOTE: Make brighter by increasing intensity (currently 1, was 3) - Spotlight that shines backward only
 const BRAKE_GLOW_MAX=35,BRAKE_GLOW_IDLE=3;
 
 const arrowShape=new THREE.Shape();
@@ -336,8 +342,6 @@ const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice
 
 // Headlight power system
 let headlightPower=1.0;
-let hlFlickerTimer=0;
-let hlFlickerDuration=0;
 
 // Road spray
 const SPRAY_COUNT=80;
@@ -872,18 +876,31 @@ function updateCameraSystem(spd){
     camera.lookAt(cam3L);
     camera.near=0.1;const tf=64+sf*6;camera.fov+=(tf-camera.fov)*0.016;camera.updateProjectionMatrix();}}
 
-// ── Speedometer ──────────────────────────────────────────────────────
-const speedoCanvas=document.getElementById('speedo'),speedoCtx=speedoCanvas.getContext('2d');
+// ── Digital Speedometer ──────────────────────────────────────────────────
+const speedoEl=document.getElementById('speedo');
 function drawSpeedometer(spd){
-  const ctx=speedoCtx,w=160,h=160,cx=w/2,cy=h/2+15,r=58;ctx.clearRect(0,0,w,h);
-  const sa=Math.PI*0.75,ea=Math.PI*2.25,ta=ea-sa,gaugeMax=MAX_SPEED*0.75;
-  ctx.beginPath();ctx.arc(cx,cy,r,sa,ea);ctx.strokeStyle='rgba(60,60,60,0.5)';ctx.lineWidth=3;ctx.stroke();
-  for(let i=0;i<=8;i++){const a=sa+(i/8)*ta,inn=r-7,out=r+2;ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*inn,cy+Math.sin(a)*inn);
-    ctx.lineTo(cx+Math.cos(a)*out,cy+Math.sin(a)*out);ctx.strokeStyle=i%2===0?'rgba(180,175,165,0.45)':'rgba(140,135,125,0.25)';ctx.lineWidth=i%2===0?1.5:1;ctx.stroke();}
-  const frac=Math.max(0,spd)/gaugeMax,needleA=sa+Math.min(frac,1.6)*ta;
-  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(needleA)*(r-4),cy+Math.sin(needleA)*(r-4));
-  ctx.strokeStyle=frac>1.0?'rgba(220,50,30,0.85)':'rgba(210,200,185,0.75)';ctx.lineWidth=1.5;ctx.stroke();
-  ctx.beginPath();ctx.arc(cx,cy,2.5,0,Math.PI*2);ctx.fillStyle='rgba(180,175,165,0.5)';ctx.fill();}
+  const countsPerSec = Math.abs(spd * 100).toFixed(1);
+  const glitchThreshold = MAX_SPEED * 0.75;
+  
+  if(Math.abs(spd) > glitchThreshold){
+    // Glitch effect at high speeds
+    const glitchChars = ['!','@','#','$','%','&','*','?','~','^'];
+    let glitchedText = '';
+    for(let char of countsPerSec){
+      if(Math.random() < 0.3){
+        glitchedText += glitchChars[Math.floor(Math.random() * glitchChars.length)];
+      } else {
+        glitchedText += char;
+      }
+    }
+    speedoEl.textContent = glitchedText + ' c/s';
+    speedoEl.style.color = `rgba(255,${Math.floor(Math.random()*255)},${Math.floor(Math.random()*255)},0.85)`;
+  } else {
+    // Normal display
+    speedoEl.textContent = countsPerSec + ' c/s';
+    speedoEl.style.color = 'rgba(255,255,255,0.85)';
+  }
+}
 
 // ── Input ────────────────────────────────────────────────────────────
 const keys={};
@@ -977,7 +994,7 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   wrongWayTimer=0;semiActive=false;if(semiTruck)semiTruck.visible=false;
   scene.fog.near=20;scene.fog.far=50;
   solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;
-  headlightPower=1.0;hlFlickerTimer=0;hlFlickerDuration=0;
+  headlightPower=1.0;
   mirrorDissonanceActive=true;stalker.visible=false;
   flashActive=false;flashProgress=0;lastFlashSol=-1;
   mouseLookYaw=0;mouseLookPitch=0;targetYaw=0;targetPitch=0;cam3Heading=0;
@@ -1115,19 +1132,8 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   playerCar.position.set(currentX,0,-progress);playerCar.rotation.y=heading;
   carPitch=lerp(carPitch,(speed-prevSpeed)*2.5,0.10);playerCar.rotation.x=carPitch;
 
-  // Headlight flickering
-  let hlIntensity=800*headlightPower;
-  if(hlFlickerTimer>0){
-    hlFlickerTimer-=dt;
-    hlIntensity=Math.random()<0.5?0:hlIntensity*0.1;
-  }else{
-    // Random flicker events weighted by loop count
-    const flickerChance=0.002+loopCount*0.0005;
-    if(Math.random()<flickerChance){
-      hlFlickerDuration=0.1+Math.random()*1.4;
-      hlFlickerTimer=hlFlickerDuration;
-    }
-  }
+  // Headlight intensity (solid, no flickering)
+  let hlIntensity=200*headlightPower; // Solid reliable light
   
   hlL.position.set(currentX+HEADLIGHT_LEFT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_LEFT_X*sinH+HEADLIGHT_Z*cosH));
   hlR.position.set(currentX+HEADLIGHT_RIGHT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_RIGHT_X*sinH+HEADLIGHT_Z*cosH));
@@ -1149,6 +1155,12 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
   tailGlow.distance=braking?22:12;
   tailGlow.position.set(currentX+TAILLIGHT_Z*sinH,TAILLIGHT_Y,-progress+TAILLIGHT_Z*cosH); // Centered taillights using taillight position variables
+  
+  // Set taillight spotlight target to shine backward
+  const tailTarget = new THREE.Object3D();
+  tailTarget.position.set(currentX+(TAILLIGHT_Z+10)*sinH,TAILLIGHT_Y,-progress+(TAILLIGHT_Z+10)*cosH);
+  tailGlow.target = tailTarget;
+  scene.add(tailTarget);
 
   emitSpray(cosH,sinH);updateSpray();
 
