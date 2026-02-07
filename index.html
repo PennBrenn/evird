@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>you are alone</title>
+<link rel="png" type="image/png" href="favicon.png">
 <style>
   *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#000;cursor:default}
@@ -39,16 +40,16 @@
 <script>
 const ROAD_LENGTH=400;let ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3,NUM_LANES=4;
 const LAMP_SPACING=30,LAMP_HEIGHT=9,LAMP_ARM_REACH=4,NUM_LAMP_SLOTS=14;
-const BASE_SPEED=0,MAX_SPEED=2,MIN_SPEED=0.08,ACCEL=0.004,BRAKE=0.014,DRAG=0.0015;
+const BASE_SPEED=0,MAX_SPEED=2,MIN_SPEED=0.08,ACCEL=0.004,BRAKE=0.014,DRAG=0.001;
 const REVERSE_MAX=-0.4;
 const STEER_SPEED_LOW=0.1;
-const STEER_SPEED_HIGH=0.001; // Much less aggressive at high speeds
-const STEER_SMOOTHING=0.3;
+const STEER_SPEED_HIGH=0.003; // Much less aggressive at high speeds
+const STEER_SMOOTHING=0.5;
 let WALL_INNER=ROAD_WIDTH/2+2-0.85;
 const MERGE_FRAMES=120,MERGE_START_Z=60;
 const RAIN_COUNT=10000,RAIN_SPREAD=100,RAIN_HEIGHT=26,STREAK_LEN=0.25;
 const COL_HX=0.85,COL_HZ=2.2,WHEEL_R=0.29,MIN_OBS_SPACING=ROAD_WIDTH*2;
-const SIGN_SPACING=400,NUM_SIGN_SLOTS=5,VHS_SCALE=0.50;
+const SIGN_SPACING=240,NUM_SIGN_SLOTS=5,VHS_SCALE=0.50;
 
 // ── Renderer ─────────────────────────────────────────────────────────
 const renderer=new THREE.WebGLRenderer({antialias:false});
