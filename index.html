@@ -19,7 +19,6 @@
   #vhs-timestamp{position:fixed;bottom:12px;left:16px;z-index:8;font-family:'Courier New',monospace;font-size:0.85rem;color:rgba(255,255,255,0.65);pointer-events:none;user-select:none;letter-spacing:0.08em;text-shadow:1px 1px 2px rgba(0,0,0,0.8)}
 </style>
 </head>
- <script> 
 <body>
 <div id="vignette"></div>
 <div id="mirror-frame"></div>
@@ -46,7 +45,7 @@ const PED_MIN_INTERVAL=100,PED_MAX_INTERVAL=500;
 
 // ── Renderer ─────────────────────────────────────────────────────────
 const renderer=new THREE.WebGLRenderer({antialias:false});
-renderer.setSize(window.innerWidth,window.innerHeight);renderer.setPixelRatio(1);
+ // renderer.setSize(window.innerWidth,window.innerHeight);renderer.setPixelRatio(1);
 renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=0.76;
 renderer.physicallyCorrectLights=true;renderer.autoClear=false;
 document.body.appendChild(renderer.domElement);
