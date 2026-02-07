@@ -182,9 +182,11 @@ function createSedan(colour){
   
   // Load the 3D model (async - will update when loaded)
   // PUT YOUR MODEL FILE IN: /home/penn/Desktop/evird/models/miata.glb
+  console.log('Attempting to load Miata model from: ./models/miata.glb');
   gltfLoader.load(
     './models/miata.glb',  // <-- MODEL FILE PATH
     (gltf)=>{
+      console.log('Miata model loaded successfully!', gltf);
       const model=gltf.scene;
       
       // Scale and position the model to match game scale
@@ -194,6 +196,7 @@ function createSedan(colour){
       // Apply color to body parts
       model.traverse(child=>{
         if(child.isMesh){
+          console.log('Found mesh:', child.name);
           // Mark body parts (adjust names to match your model)
           if(child.name.toLowerCase().includes('body')||
              child.name.toLowerCase().includes('hood')||
@@ -215,9 +218,12 @@ function createSedan(colour){
       g.add(model);
       setupLightsAndWheels(g);
     },
-    undefined,
+    (progress)=>{
+      console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
+    },
     (error)=>{
       console.error('Error loading Miata model:',error);
+      console.log('Falling back to simple box');
       // Fallback to simple box if model fails to load
       const fallback=new THREE.Mesh(
         new THREE.BoxGeometry(1.7,0.8,4.0),
