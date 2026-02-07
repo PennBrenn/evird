@@ -35,6 +35,7 @@
 <div id="controls">W/↑ accelerate · S/↓ brake/reverse<br>A/← steer left · D/→ steer right<br>C camera · P pause · R restart</div>
 <div id="censor-container"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 const ROAD_LENGTH=1000;let ROAD_WIDTH=14,LANE_WIDTH=3.5,SHOULDER_EXTRA=3,NUM_LANES=4;
 const LAMP_SPACING=40,LAMP_HEIGHT=9,LAMP_ARM_REACH=3.5,NUM_LAMP_SLOTS=14;
@@ -144,170 +145,136 @@ function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i
   else{fs.timer--;lampLights[i].intensity=Math.sin(fs.timer*0.9+fs.seed)*Math.sin(fs.timer*2.3)>0.05?380:15;
     if(fs.timer<=0){fs.active=false;lampLights[i].intensity=380;}}}}
 
-// ── Mazda NA Miata model (BufferGeometry) ───────────────────────────
+// ── 3D Model Loader for Mazda NA Miata ──────────────────────────────
+// LIGHT POSITION CONFIGURATION (adjust these to match your 3D model)
+const HEADLIGHT_LEFT_X = -0.60;   // Left headlight X position
+const HEADLIGHT_RIGHT_X = 0.60;   // Right headlight X position
+const HEADLIGHT_Y = 0.50;         // Headlight Y (height) position
+const HEADLIGHT_Z = -1.80;        // Headlight Z (front) position
+
+const TAILLIGHT_LEFT_X = -0.55;   // Left taillight X position
+const TAILLIGHT_RIGHT_X = 0.55;   // Right taillight X position
+const TAILLIGHT_Y = 0.45;         // Taillight Y (height) position
+const TAILLIGHT_Z = 2.00;         // Taillight Z (rear) position
+
+const gltfLoader = new THREE.GLTFLoader();
+let miataModelCache = null;
+
 function createSedan(colour){
-  const g=new THREE.Group();g.userData.wheelGroups=[];
-  const bodyMat=new THREE.MeshPhongMaterial({color:0xff0000,specular:0x666666,shininess:115});
-  const topMat=new THREE.MeshPhongMaterial({color:0x111111,specular:0x444444,shininess:80});
-  const glassMat=new THREE.MeshPhongMaterial({color:0x080812,specular:0xaaaaaa,shininess:140,transparent:true,opacity:0.58,depthWrite:false});
-  const trimMat=new THREE.MeshPhongMaterial({color:0x0c0c0c,specular:0x444444,shininess:35});
-  const rubberMat=new THREE.MeshPhongMaterial({color:0x080808,specular:0x0e0e0e,shininess:6});
-  const chromeMat=new THREE.MeshPhongMaterial({color:0x222222,specular:0x999999,shininess:90});
-
-  // Miata dimensions: Total length ~4.4 units to match COL_HZ=2.2 (half-length)
-  // Width ~1.7 units to match COL_HX=0.85 (half-width)
+  const g=new THREE.Group();
+  g.userData.wheelGroups=[];
   
-  // ── BODY (Red) ──
-  const bodyVertices=new Float32Array([
-    // Front hood (curved, low)
-    -0.75,-0.05,-2.10,  0.75,-0.05,-2.10,  0.75,0.45,-2.10,  -0.75,0.45,-2.10, // front face
-    -0.75,-0.05,-2.10,  -0.75,0.45,-2.10,  -0.75,0.50,-1.20,  -0.75,0.00,-1.20, // left hood
-    0.75,-0.05,-2.10,   0.75,0.00,-1.20,   0.75,0.50,-1.20,   0.75,0.45,-2.10, // right hood
-    -0.75,0.45,-2.10,   0.75,0.45,-2.10,   0.75,0.50,-1.20,   -0.75,0.50,-1.20, // hood top
-    -0.75,-0.05,-2.10,  -0.75,0.00,-1.20,  0.75,0.00,-1.20,   0.75,-0.05,-2.10, // hood bottom
-    
-    // Cabin bubble (black top, sides are body panels below)
-    -0.70,0.50,-1.10,   0.70,0.50,-1.10,   0.70,0.50,0.60,    -0.70,0.50,0.60, // cabin floor
-    -0.70,0.50,-1.10,   -0.70,1.10,-0.80,  -0.70,1.10,0.30,   -0.70,0.50,0.60, // left cabin side (body)
-    0.70,0.50,-1.10,    0.70,0.50,0.60,    0.70,1.10,0.30,    0.70,1.10,-0.80, // right cabin side (body)
-    
-    // Rear deck/trunk
-    -0.75,0.50,0.70,    0.75,0.50,0.70,    0.75,0.45,2.10,    -0.75,0.45,2.10, // trunk top
-    -0.75,0.50,0.70,    -0.75,0.45,2.10,   -0.75,-0.05,2.10,  -0.75,0.00,0.70, // left trunk
-    0.75,0.50,0.70,     0.75,0.00,0.70,    0.75,-0.05,2.10,   0.75,0.45,2.10, // right trunk
-    -0.75,0.45,2.10,    0.75,0.45,2.10,    0.75,-0.05,2.10,   -0.75,-0.05,2.10, // rear face
-    -0.75,0.00,0.70,    -0.75,-0.05,2.10,  0.75,-0.05,2.10,   0.75,0.00,0.70, // trunk bottom
-    
-    // Lower body panels (connecting hood to trunk, with wheel well cutouts)
-    // Left side - front section (before wheel well)
-    -0.85,0.00,-1.20,   -0.85,0.50,-1.20,  -0.85,0.50,-0.80,  -0.85,0.00,-0.80,
-    // Left side - rear section (after wheel well)
-    -0.85,0.00,0.80,    -0.85,0.50,0.80,   -0.85,0.50,0.70,   -0.85,0.00,0.70,
-    // Right side - front section
-    0.85,0.00,-1.20,    0.85,0.00,-0.80,   0.85,0.50,-0.80,   0.85,0.50,-1.20,
-    // Right side - rear section
-    0.85,0.00,0.80,     0.85,0.50,0.70,    0.85,0.50,0.80,    0.85,0.00,0.70,
-    
-    // Bottom floor
-    -0.85,-0.05,-2.10,  0.85,-0.05,-2.10,  0.85,-0.05,2.10,   -0.85,-0.05,2.10,
-  ]);
-  
-  const bodyIndices=new Uint16Array([
-    // Front hood
-    0,1,2, 0,2,3,
-    4,5,6, 4,6,7,
-    8,9,10, 8,10,11,
-    12,13,14, 12,14,15,
-    16,17,18, 16,18,19,
-    // Cabin sides (body color)
-    24,25,26, 24,26,27,
-    28,29,30, 28,30,31,
-    // Trunk
-    32,33,34, 32,34,35,
-    36,37,38, 36,38,39,
-    40,41,42, 40,42,43,
-    44,45,46, 44,46,47,
-    48,49,50, 48,50,51,
-    // Lower body panels
-    52,53,54, 52,54,55,
-    56,57,58, 56,58,59,
-    60,61,62, 60,62,63,
-    64,65,66, 64,66,67,
-    // Bottom
-    68,69,70, 68,70,71,
-  ]);
-  
-  const bodyGeo=new THREE.BufferGeometry();
-  bodyGeo.setAttribute('position',new THREE.BufferAttribute(bodyVertices,3));
-  bodyGeo.setIndex(new THREE.BufferAttribute(bodyIndices,1));
-  bodyGeo.computeVertexNormals();
-  const bodyMesh=new THREE.Mesh(bodyGeo,bodyMat);
-  g.add(bodyMesh);
-  
-  // ── TOP/CANOPY (Black bubble) ──
-  const topVertices=new Float32Array([
-    // Front windshield
-    -0.70,0.50,-1.10,   0.70,0.50,-1.10,   0.70,1.10,-0.80,   -0.70,1.10,-0.80,
-    // Roof
-    -0.70,1.10,-0.80,   0.70,1.10,-0.80,   0.70,1.10,0.30,    -0.70,1.10,0.30,
-    // Rear window
-    -0.70,1.10,0.30,    0.70,1.10,0.30,    0.70,0.50,0.60,    -0.70,0.50,0.60,
-    // Left side
-    -0.70,0.50,-1.10,   -0.70,1.10,-0.80,  -0.70,1.10,0.30,   -0.70,0.50,0.60,
-    // Right side
-    0.70,0.50,-1.10,    0.70,0.50,0.60,    0.70,1.10,0.30,    0.70,1.10,-0.80,
-  ]);
-  
-  const topIndices=new Uint16Array([
-    0,1,2, 0,2,3,    // windshield
-    4,5,6, 4,6,7,    // roof
-    8,9,10, 8,10,11, // rear window
-    12,13,14, 12,14,15, // left
-    16,17,18, 16,18,19, // right
-  ]);
-  
-  const topGeo=new THREE.BufferGeometry();
-  topGeo.setAttribute('position',new THREE.BufferAttribute(topVertices,3));
-  topGeo.setIndex(new THREE.BufferAttribute(topIndices,1));
-  topGeo.computeVertexNormals();
-  const topMesh=new THREE.Mesh(topGeo,topMat);
-  g.add(topMesh);
-  
-  // ── POP-UP HEADLIGHTS (raised boxes on hood) ──
-  const popUpMat=new THREE.MeshBasicMaterial({color:0xeeeedd});
-  for(const sx of[-0.55,0.55]){
-    const popUp=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.18,0.12),popUpMat);
-    popUp.position.set(sx,0.58,-1.85); // Raised on hood
-    g.add(popUp);
+  // If model is already loaded, clone it
+  if(miataModelCache){
+    const clone=miataModelCache.clone();
+    clone.traverse(child=>{
+      if(child.isMesh){
+        child.material=child.material.clone();
+        if(child.name==='Body'||child.userData.isBody){
+          child.material.color.setHex(colour);
+        }
+      }
+    });
+    g.add(clone);
+    setupLightsAndWheels(g);
+    return g;
   }
   
-  // ── TAILLIGHTS ──
-  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333,emissive:0xff0000,emissiveIntensity:1.0});
-  const tlGlow=new THREE.MeshBasicMaterial({color:0xff3333,transparent:true,opacity:0.0,depthWrite:false});
-  for(const sx of[-0.55,0.55]){
-    const tl=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.10,0.04),tlMat);
-    tl.position.set(sx,0.35,2.11);
-    g.add(tl);
-    const tg=new THREE.Mesh(new THREE.SphereGeometry(0.18,6,4),tlGlow);
-    tg.position.set(sx,0.35,2.11);
-    g.add(tg);
-  }
-
-  // ── GRILLE & BUMPERS ──
-  const gr=new THREE.Mesh(new THREE.BoxGeometry(1.0,0.10,0.04),new THREE.MeshPhongMaterial({color:0x040404}));
-  gr.position.set(0,0.30,-2.11);
-  g.add(gr);
-  const bf=new THREE.Mesh(new THREE.BoxGeometry(1.56,0.04,0.04),chromeMat);
-  bf.position.set(0,0.22,-2.11);
-  g.add(bf);
-  const br=new THREE.Mesh(new THREE.BoxGeometry(1.56,0.04,0.04),chromeMat);
-  br.position.set(0,0.22,2.11);
-  g.add(br);
-
-  // ── WHEELS ──
-  const tG=new THREE.TorusGeometry(0.27,0.09,8,18),rG=new THREE.CylinderGeometry(0.18,0.18,0.14,14);
-  const wPos=[[-0.80,0.27,-1.30],[0.80,0.27,-1.30],[-0.80,0.27,1.30],[0.80,0.27,1.30]];
-  for(const[wx,wy,wz]of wPos){
-    const wG=new THREE.Group();
-    wG.position.set(wx,wy,wz);
-    const t=new THREE.Mesh(tG,rubberMat);
-    t.rotation.y=Math.PI/2;
-    wG.add(t);
-    const rm=new THREE.Mesh(rG,chromeMat);
-    rm.rotation.z=Math.PI/2;
-    wG.add(rm);
-    g.add(wG);
-    g.userData.wheelGroups.push(wG);
-  }
-
-  // ── SIDE MIRRORS ──
-  for(const sx of[-1,1]){
-    const sm=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.08,0.06),trimMat);
-    sm.position.set(sx*0.90,0.95,-0.60);
-    g.add(sm);
-  }
-
+  // Load the 3D model (async - will update when loaded)
+  // PUT YOUR MODEL FILE IN: /home/penn/Desktop/evird/models/miata.glb
+  gltfLoader.load(
+    './models/miata.glb',  // <-- MODEL FILE PATH
+    (gltf)=>{
+      const model=gltf.scene;
+      
+      // Scale and position the model to match game scale
+      model.scale.setScalar(0.5);  // Adjust scale as needed
+      model.position.y=0;
+      
+      // Apply color to body parts
+      model.traverse(child=>{
+        if(child.isMesh){
+          // Mark body parts (adjust names to match your model)
+          if(child.name.toLowerCase().includes('body')||
+             child.name.toLowerCase().includes('hood')||
+             child.name.toLowerCase().includes('door')||
+             child.name.toLowerCase().includes('fender')){
+            child.userData.isBody=true;
+            child.material=child.material.clone();
+            child.material.color.setHex(colour);
+          }
+          // Mark wheels (adjust names to match your model)
+          if(child.name.toLowerCase().includes('wheel')||
+             child.name.toLowerCase().includes('tire')){
+            child.userData.isWheel=true;
+          }
+        }
+      });
+      
+      miataModelCache=model;
+      g.add(model);
+      setupLightsAndWheels(g);
+    },
+    undefined,
+    (error)=>{
+      console.error('Error loading Miata model:',error);
+      // Fallback to simple box if model fails to load
+      const fallback=new THREE.Mesh(
+        new THREE.BoxGeometry(1.7,0.8,4.0),
+        new THREE.MeshPhongMaterial({color:colour,specular:0x666666,shininess:115})
+      );
+      fallback.position.y=0.5;
+      g.add(fallback);
+      setupLightsAndWheels(g);
+    }
+  );
+  
+  setupLightsAndWheels(g);
   return g;
+}
+
+function setupLightsAndWheels(g){
+  // Add visual headlight markers
+  const hlMat=new THREE.MeshBasicMaterial({color:0xffffdd});
+  const hlL=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.12,0.06),hlMat);
+  hlL.position.set(HEADLIGHT_LEFT_X,HEADLIGHT_Y,HEADLIGHT_Z);
+  g.add(hlL);
+  
+  const hlR=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.12,0.06),hlMat);
+  hlR.position.set(HEADLIGHT_RIGHT_X,HEADLIGHT_Y,HEADLIGHT_Z);
+  g.add(hlR);
+  
+  // Add visual taillight markers
+  const tlMat=new THREE.MeshBasicMaterial({color:0xff3333,emissive:0xff0000,emissiveIntensity:1.0});
+  const tlL=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.10,0.04),tlMat);
+  tlL.position.set(TAILLIGHT_LEFT_X,TAILLIGHT_Y,TAILLIGHT_Z);
+  g.add(tlL);
+  
+  const tlR=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.10,0.04),tlMat);
+  tlR.position.set(TAILLIGHT_RIGHT_X,TAILLIGHT_Y,TAILLIGHT_Z);
+  g.add(tlR);
+  
+  // Create wheel groups if model doesn't have them
+  if(g.userData.wheelGroups.length===0){
+    const rubberMat=new THREE.MeshPhongMaterial({color:0x080808,specular:0x0e0e0e,shininess:6});
+    const chromeMat=new THREE.MeshPhongMaterial({color:0x222222,specular:0x999999,shininess:90});
+    const tG=new THREE.TorusGeometry(0.27,0.09,8,18);
+    const rG=new THREE.CylinderGeometry(0.18,0.18,0.14,14);
+    const wPos=[[-0.75,0.27,-1.30],[0.75,0.27,-1.30],[-0.75,0.27,1.25],[0.75,0.27,1.25]];
+    
+    for(const[wx,wy,wz]of wPos){
+      const wG=new THREE.Group();
+      wG.position.set(wx,wy,wz);
+      const t=new THREE.Mesh(tG,rubberMat);
+      t.rotation.y=Math.PI/2;
+      wG.add(t);
+      const rm=new THREE.Mesh(rG,chromeMat);
+      rm.rotation.z=Math.PI/2;
+      wG.add(rm);
+      g.add(wG);
+      g.userData.wheelGroups.push(wG);
+    }
+  }
 }
 
 // ── Player ───────────────────────────────────────────────────────────
@@ -328,8 +295,8 @@ const arrowMesh=new THREE.Mesh(arrowGeo,arrowMat);arrowMesh.visible=false;scene.
 
 let progress=0,currentX=0,speed=BASE_SPEED,prevSpeed=BASE_SPEED,steer=0,currentSteerInput=0,carPitch=0,heading=0;
 
-let damageLevel=0;const playerBodyMat=playerCar.children[0].material;const ORIGINAL_COLOR=new THREE.Color(0xE8E8E8);
-const origBodyPos=playerCar.children[0].geometry.attributes.position.array.slice();
+let damageLevel=0;const playerBodyMat=playerCar.children[1].material;const ORIGINAL_COLOR=new THREE.Color(0xE8E8E8);
+const origBodyPos=playerCar.children[1].geometry.attributes.position.array.slice();
 
 // Headlight power system
 let headlightPower=1.0;
@@ -516,8 +483,8 @@ function updateSparks(){for(let i=0;i<SPARK_COUNT;i++){if(sparkLife[i]>0){sparkL
 // ── Ghosts ───────────────────────────────────────────────────────────
 const allRecordings=[];let currentRecording=[];
 class Ghost{constructor(rec,spawnLoop){this.rec=rec;this.mesh=createSedan(0x1e1e28);
-    this.mesh.children[0].material.color.copy(playerBodyMat.color);
-    this.mesh.children[0].layers.set(1); // Set ghost body to layer 1 too
+    this.mesh.children[1].material.color.copy(playerBodyMat.color);
+    this.mesh.children[1].layers.set(1); // Set ghost body to layer 1 too
     this.frame=0;this.mFrame=0;this.merged=false;this.creationTime=performance.now();this.mesh.visible=true;
     this.spawnLoop=spawnLoop;
     this.lastPos={x:0,z:0};
@@ -562,7 +529,7 @@ function spawnObstacles(loopNum){for(const o of liveObstacles)scene.remove(o.mes
   for(let i=0;i<count;i++){let ox,oz,valid,att=0;
     do{ox=(rng()-0.5)*(ROAD_WIDTH-2);oz=rng()*(ROAD_LENGTH-80)+40;valid=true;for(const pz of placed)if(Math.abs(oz-pz)<MIN_OBS_SPACING){valid=false;break;}att++;}while(!valid&&att<40);
     if(!valid)continue;placed.push(oz);const mesh=createSedan(0x121216);mesh.rotation.y=(rng()-0.5)*0.5;
-    mesh.children[0].layers.set(1); // Set obstacle body to layer 1
+    mesh.children[1].layers.set(1); // Set obstacle body to layer 1
     scene.add(mesh);
     liveObstacles.push({mesh,ox,oz,lastPos:{x:0,z:0},stationaryFrames:0});}}
 
@@ -961,9 +928,9 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   spawnObstacles(0);
   for(const lm of landmarks)scene.remove(lm);landmarks.length=0;
   damageLevel=0;playerBodyMat.color.copy(ORIGINAL_COLOR);
-  const bPos=playerCar.children[0].geometry.attributes.position;
+  const bPos=playerCar.children[1].geometry.attributes.position;
   bPos.array.set(origBodyPos);bPos.needsUpdate=true;
-  playerCar.children[0].geometry.computeVertexNormals();
+  playerCar.children[1].geometry.computeVertexNormals();
   wrongWayTimer=0;semiActive=false;if(semiTruck)semiTruck.visible=false;
   scene.fog.near=20;scene.fog.far=50;
   solsEl.textContent='';solsEl.classList.remove('sign-mode');playerCar.visible=true;
@@ -1061,7 +1028,7 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
       ORIGINAL_COLOR.b*brightness
     );
     
-    const geo=playerCar.children[0].geometry;const vPos=geo.attributes.position;
+    const geo=playerCar.children[1].geometry;const vPos=geo.attributes.position;
     const dentStr=0.015+damageLevel*0.02;
     for(let vi=0;vi<vPos.count;vi++){
       if(Math.random()<0.08){
@@ -1119,16 +1086,15 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     }
   }
   
-  const hlZ=-1.85;
-  hlL.position.set(currentX+(-0.55)*cosH+hlZ*sinH,0.58,-progress+(0.55*sinH+hlZ*cosH));
-  hlR.position.set(currentX+0.55*cosH+hlZ*sinH,0.58,-progress+(-0.55*sinH+hlZ*cosH));
+  hlL.position.set(currentX+HEADLIGHT_LEFT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_LEFT_X*sinH+HEADLIGHT_Z*cosH));
+  hlR.position.set(currentX+HEADLIGHT_RIGHT_X*cosH+HEADLIGHT_Z*sinH,HEADLIGHT_Y,-progress+(-HEADLIGHT_RIGHT_X*sinH+HEADLIGHT_Z*cosH));
   hlL.intensity=hlIntensity;
   hlR.intensity=hlIntensity;
 
   const braking=keys['ArrowDown']||keys['KeyS'];
   tailGlow.intensity=braking?BRAKE_GLOW_MAX:BRAKE_GLOW_IDLE;
   tailGlow.distance=braking?22:12;
-  tailGlow.position.set(currentX+2.11*sinH,0.35,-progress+2.11*cosH);
+  tailGlow.position.set(currentX+2.0*sinH,0.40,-progress+2.0*cosH);
 
   emitSpray(cosH,sinH);updateSpray();
 
