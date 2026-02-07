@@ -147,10 +147,10 @@ function updateLampFlicker(){for(let i=0;i<NUM_LAMP_SLOTS;i++){const fs=lampFS[i
 
 // ── 3D Model Loader for Mazda NA Miata ──────────────────────────────
 // MIATA MODEL POSITION, SCALE, AND ROTATION CONFIGURATION
-const MIATA_SCALE = 0.025;          // Overall scale of the Miata model (1/3 of previous size)
-const MIATA_POSITION_X = 0;         // X position offset
+const MIATA_SCALE = 0.004;          // Overall scale of the Miata model (1/6 of previous size)
+const MIATA_POSITION_X = 0.0375;    // X position offset (1.5x model size to the right)
 const MIATA_POSITION_Y = 0;         // Y position offset (height)
-const MIATA_POSITION_Z = 0;         // Z position offset
+const MIATA_POSITION_Z = -0.025;   // Z position offset (back the same amount as model size)
 const MIATA_ROTATION_X = 0;         // X rotation in radians
 const MIATA_ROTATION_Y = Math.PI/2;  // Y rotation in radians (90 degrees counter clockwise)
 const MIATA_ROTATION_Z = 0;         // Z rotation in radians
@@ -791,6 +791,18 @@ function cycleCamera(){
 
 function updateCameraSystem(spd){
   const cosH=Math.cos(heading),sinH=Math.sin(heading),sf=Math.abs(spd)/MAX_SPEED;
+  
+  // TEMPORARY: Camera rotation for model positioning (TO BE DELETED)
+  if(isRotatingCamera){
+    cameraRotationAngle += 0.02; // Auto-rotate around car
+    const rotX = currentX + Math.cos(cameraRotationAngle) * cameraRotationRadius;
+    const rotZ = -progress + Math.sin(cameraRotationAngle) * cameraRotationRadius;
+    camera.position.set(rotX, cameraRotationHeight, rotZ);
+    camera.lookAt(currentX, 0, -progress);
+    camera.near=0.15;camera.fov=76;camera.updateProjectionMatrix();
+    return; // Skip normal camera updates when rotating
+  }
+  
   // Smooth mouse look with lerp (both modes)
   mouseLookYaw+=(targetYaw-mouseLookYaw)*LOOK_LERP;
   mouseLookPitch+=(targetPitch-mouseLookPitch)*LOOK_LERP;
@@ -866,7 +878,25 @@ function drawSpeedometer(spd){
 
 // ── Input ────────────────────────────────────────────────────────────
 const keys={};
-window.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='KeyP'&&!e.repeat)togglePause();if(e.code==='KeyR'&&crashed)restartGame();if(e.code==='KeyC'&&!e.repeat&&!crashed)cycleCamera();});
+
+// TEMPORARY: Camera rotation for model positioning (TO BE DELETED)
+let cameraRotationAngle = 0;
+let cameraRotationRadius = 3;
+let cameraRotationHeight = 1.5;
+let isRotatingCamera = false;
+
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(e.code==='KeyP'&&!e.repeat)togglePause();
+  if(e.code==='KeyR'&&crashed)restartGame();
+  if(e.code==='KeyC'&&!e.repeat&&!crashed)cycleCamera();
+  
+  // TEMPORARY: Toggle camera rotation with 'T' key (TO BE DELETED)
+  if(e.code==='KeyT'&&!e.repeat){
+    isRotatingCamera = !isRotatingCamera;
+    console.log('Camera rotation for model positioning:', isRotatingCamera ? 'ON' : 'OFF');
+  }
+});
 window.addEventListener('keyup',e=>{keys[e.code]=false;});
 
 // ── Game State ───────────────────────────────────────────────────────
