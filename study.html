@@ -14,9 +14,8 @@
   #sols{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:8;font-family:'Courier New',monospace;font-size:0.68rem;letter-spacing:0.35em;pointer-events:none;user-select:none;opacity:0;color:rgba(255,255,255,0);transition:opacity 0.5s ease,background 0.4s ease,color 0.4s ease}
   #sols.sign-mode{opacity:1;background:rgba(0,75,38,0.88);color:rgba(255,255,255,0.92);padding:6px 18px;border:1.5px solid rgba(255,255,255,0.55);border-radius:2px;font-size:0.72rem;letter-spacing:0.22em}
   #crash-overlay{position:fixed;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#000;pointer-events:none}
-  #crash-overlay.active{display:flex}
+  #crash-overlay.active{display:flex;pointer-events:auto}
   #crash-overlay .msg{color:rgba(170,165,155,0.88);font-family:'Courier New',monospace;font-size:1.05rem;letter-spacing:0.25em}
-  #crash-overlay .restart{color:rgba(120,115,105,0.40);font-family:'Courier New',monospace;font-size:0.55rem;letter-spacing:0.2em;margin-top:12px}
   #speedo{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:8;font-family:'Courier New',monospace;font-size:1.2rem;color:rgba(255,255,255,0.85);pointer-events:none;opacity:0.9;text-shadow:0 0 8px rgba(0,255,255,0.3)}
   #mirror-frame{position:fixed;top:14px;left:50%;transform:translateX(-50%);width:480px;height:120px;z-index:6;pointer-events:none;border:none;background:none}
   #vhs-timestamp{position:fixed;bottom:12px;left:16px;z-index:8;font-family:'Courier New',monospace;font-size:0.85rem;color:rgba(255,255,255,0.65);pointer-events:none;user-select:none;letter-spacing:0.08em;text-shadow:1px 1px 2px rgba(0,0,0,0.8)}
@@ -338,6 +337,169 @@
   .fc-rs { text-align: center; }
   .fc-rs .n { font-size: 2rem; display: block; }
   .fc-rs .l { font-size: 0.5rem; letter-spacing: 0.2em; color: rgba(0,255,80,0.3); text-transform: uppercase; }
+
+  /* ═══════════════════════════════════════════════════════
+     SUBLIMINAL VOCAB — floats over the driving view
+  ═══════════════════════════════════════════════════════ */
+  #subliminal {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  .sub-es {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(1.6rem, 4vw, 2.8rem);
+    color: rgba(0,255,80,0.85);
+    letter-spacing: 0.08em;
+    text-shadow: 0 0 30px rgba(0,255,80,0.4), 0 0 60px rgba(0,255,80,0.15);
+    text-align: center;
+  }
+  .sub-en {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(0.75rem, 2vw, 1.1rem);
+    color: rgba(200,200,160,0.65);
+    letter-spacing: 0.25em;
+    text-transform: lowercase;
+    opacity: 0;
+    text-align: center;
+  }
+  .sub-cat {
+    font-family: 'Courier New', monospace;
+    font-size: 0.5rem;
+    color: rgba(0,255,80,0.25);
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     CRASH QUIZ — quiz embedded in the death screen
+  ═══════════════════════════════════════════════════════ */
+  #crash-quiz {
+    display: none;
+    opacity: 0;
+    transition: opacity 0.7s ease;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    pointer-events: auto;
+    max-width: 480px;
+    width: 90vw;
+    border: 1px solid rgba(0,255,80,0.15);
+    padding: 18px 20px;
+    background: rgba(0,8,3,0.9);
+    margin-top: 4px;
+  }
+  #crash-quiz.visible { display: flex; }
+  #crash-quiz.shown   { opacity: 1; }
+  .cq-prompt {
+    font-family: 'Courier New', monospace;
+    font-size: 0.55rem;
+    color: rgba(0,255,80,0.3);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+  .cq-word {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(1.3rem, 3.5vw, 2rem);
+    color: rgba(0,255,80,0.9);
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 20px rgba(0,255,80,0.35);
+    text-align: center;
+  }
+  .cq-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    width: 100%;
+  }
+  .cq-btn {
+    padding: 9px 10px;
+    border: 1px solid rgba(0,255,80,0.2);
+    background: transparent;
+    color: rgba(0,255,80,0.55);
+    font-family: 'Courier New', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.12s;
+    text-align: left;
+  }
+  .cq-btn:hover:not(:disabled) { border-color: rgba(0,255,80,0.6); color: rgba(0,255,80,0.9); background: rgba(0,255,80,0.06); }
+  .cq-btn:disabled { cursor: default; }
+  .cq-btn.cq-correct { border-color: rgba(0,255,80,0.9) !important; color: rgba(0,255,80,1) !important; background: rgba(0,255,80,0.12) !important; }
+  .cq-btn.cq-wrong   { border-color: rgba(255,50,50,0.7) !important; color: rgba(255,80,80,0.8) !important; }
+  .cq-feedback {
+    font-family: 'Courier New', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    min-height: 1em;
+    text-align: center;
+  }
+  /* Crash restart locked vs unlocked */
+  #crash-restart {
+    color: rgba(120,115,105,0.15);
+    font-family: 'Courier New', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    margin-top: 8px;
+    transition: color 0.8s ease, opacity 0.8s ease;
+    pointer-events: none;
+  }
+  #crash-restart.unlocked { color: rgba(120,115,105,0.55); }
+
+  /* Loop milestone flash */
+  #loop-flash {
+    position: fixed;
+    inset: 0;
+    z-index: 11;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: none;
+    background: transparent;
+  }
+  #loop-flash.active { display: flex; }
+  .lf-loop {
+    font-family: 'Courier New', monospace;
+    font-size: 0.55rem;
+    color: rgba(0,255,80,0.3);
+    letter-spacing: 0.45em;
+    text-transform: uppercase;
+  }
+  .lf-word {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(2rem, 6vw, 4rem);
+    color: rgba(0,255,80,0.0);
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 40px rgba(0,255,80,0);
+    text-align: center;
+    transition: color 0.4s ease, text-shadow 0.4s ease;
+  }
+  .lf-word.bright {
+    color: rgba(0,255,80,0.9);
+    text-shadow: 0 0 40px rgba(0,255,80,0.5);
+  }
+  .lf-en {
+    font-family: 'Courier New', monospace;
+    font-size: clamp(0.7rem, 1.8vw, 1rem);
+    color: rgba(180,180,130,0);
+    letter-spacing: 0.3em;
+    transition: color 0.5s ease 0.5s;
+    text-align: center;
+  }
+  .lf-en.bright { color: rgba(180,180,130,0.6); }
 </style>
 </head>
 <body>
@@ -346,7 +508,26 @@
 <div id="sols"></div>
 <div id="speedo">0.0 c/m</div>
 <div id="vhs-timestamp">REC ●</div>
-<div id="crash-overlay"><span class="msg"></span><span class="restart">press r to restart the cycle.</span></div>
+<div id="crash-overlay">
+  <span class="msg"></span>
+  <div id="crash-quiz">
+    <div class="cq-prompt">¿qué significa?</div>
+    <div class="cq-word" id="cq-word"></div>
+    <div class="cq-options" id="cq-options"></div>
+    <div class="cq-feedback" id="cq-feedback"></div>
+  </div>
+  <span id="crash-restart">press r to restart the cycle.</span>
+</div>
+<div id="loop-flash">
+  <div class="lf-loop" id="lf-loop-label">LOOP 0</div>
+  <div class="lf-word" id="lf-word"></div>
+  <div class="lf-en" id="lf-en"></div>
+</div>
+<div id="subliminal">
+  <div class="sub-es" id="sub-es"></div>
+  <div class="sub-en" id="sub-en"></div>
+  <div class="sub-cat" id="sub-cat"></div>
+</div>
 <div id="controls">W/↑ accelerate · S/↓ brake/reverse<br>A/← steer left · D/→ steer right<br>C camera · P pause · F flashcards · R restart</div>
 <div id="censor-container"></div>
 
@@ -672,6 +853,237 @@ fcSetDeck();
 
 // ══════════════════════════════════════════════════════════════════════
 //  END FLASHCARD SYSTEM
+// ══════════════════════════════════════════════════════════════════════
+</script>
+<script>
+// ══════════════════════════════════════════════════════════════════════
+//  VOCAB INTEGRATION SYSTEM
+//  - Subliminal cards while driving (every 45–90s)
+//  - Loop milestone flash (each loop completion)
+//  - Crash quiz (must answer to unlock restart)
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Subliminal system ────────────────────────────────────────────────
+let subliminalTimer = 0;
+let subliminalInterval = 50 + Math.random() * 40;
+let subliminalPhase = 'idle'; // idle | word | answer | fade
+let subliminalWord = null;
+let subliminalPhaseTimer = 0;
+
+function showSubliminal(word) {
+  subliminalWord = word || FC_WORDS[Math.floor(Math.random() * FC_WORDS.length)];
+  subliminalPhase = 'word';
+  subliminalPhaseTimer = 0;
+  const el = document.getElementById('subliminal');
+  document.getElementById('sub-es').textContent = subliminalWord.es;
+  document.getElementById('sub-en').textContent = subliminalWord.en;
+  document.getElementById('sub-cat').textContent = subliminalWord.cat;
+  const subEn = document.getElementById('sub-en');
+  subEn.style.transition = '';
+  subEn.style.opacity = '0';
+  el.style.transition = 'opacity 0.6s ease';
+  el.style.opacity = '0';
+  el.style.display = 'flex';
+  requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = '1'; }));
+  // Speak quietly
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(subliminalWord.es);
+    utt.lang = 'es-ES'; utt.rate = 0.75; utt.volume = 0.6;
+    const voices = window.speechSynthesis.getVoices();
+    const esV = voices.find(v => v.lang.startsWith('es'));
+    if (esV) utt.voice = esV;
+    window.speechSynthesis.speak(utt);
+  }
+}
+
+function updateSubliminal(dt) {
+  if (typeof paused !== 'undefined' && paused) return;
+  if (typeof crashed !== 'undefined' && crashed) return;
+  if (typeof fcOpen !== 'undefined' && fcOpen) return;
+
+  subliminalTimer += dt;
+  if (subliminalTimer >= subliminalInterval && subliminalPhase === 'idle') {
+    subliminalTimer = 0;
+    subliminalInterval = 45 + Math.random() * 50;
+    showSubliminal();
+  }
+
+  if (subliminalPhase === 'idle') return;
+  subliminalPhaseTimer += dt;
+  const el = document.getElementById('subliminal');
+
+  if (subliminalPhase === 'word' && subliminalPhaseTimer >= 2.8) {
+    subliminalPhase = 'answer';
+    subliminalPhaseTimer = 0;
+    const en = document.getElementById('sub-en');
+    en.style.transition = 'opacity 0.7s ease';
+    en.style.opacity = '1';
+  }
+  if (subliminalPhase === 'answer' && subliminalPhaseTimer >= 2.4) {
+    subliminalPhase = 'fade';
+    subliminalPhaseTimer = 0;
+    el.style.transition = 'opacity 0.9s ease';
+    el.style.opacity = '0';
+  }
+  if (subliminalPhase === 'fade' && subliminalPhaseTimer >= 1.1) {
+    subliminalPhase = 'idle';
+    el.style.display = 'none';
+  }
+}
+
+function resetSubliminal() {
+  subliminalTimer = 0;
+  subliminalInterval = 50 + Math.random() * 40;
+  subliminalPhase = 'idle';
+  const el = document.getElementById('subliminal');
+  el.style.display = 'none';
+  el.style.opacity = '0';
+}
+
+// ── Loop milestone flash ─────────────────────────────────────────────
+let loopFlashPhase = 'idle'; // idle | in | hold | out
+let loopFlashTimer = 0;
+let loopFlashWord = null;
+
+function triggerLoopFlash(loopNum) {
+  if (loopFlashPhase !== 'idle') return;
+  loopFlashWord = FC_WORDS[Math.floor(Math.random() * FC_WORDS.length)];
+  loopFlashPhase = 'in';
+  loopFlashTimer = 0;
+  const el = document.getElementById('loop-flash');
+  document.getElementById('lf-loop-label').textContent = 'LOOP ' + loopNum;
+  document.getElementById('lf-word').textContent = loopFlashWord.es;
+  document.getElementById('lf-en').textContent = loopFlashWord.en;
+  document.getElementById('lf-word').classList.remove('bright');
+  document.getElementById('lf-en').classList.remove('bright');
+  el.classList.add('active');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.getElementById('lf-word').classList.add('bright');
+    document.getElementById('lf-en').classList.add('bright');
+  }));
+}
+
+function updateLoopFlash(dt) {
+  if (loopFlashPhase === 'idle') return;
+  loopFlashTimer += dt;
+  if (loopFlashPhase === 'in' && loopFlashTimer >= 2.2) {
+    loopFlashPhase = 'out';
+    loopFlashTimer = 0;
+    document.getElementById('lf-word').classList.remove('bright');
+    document.getElementById('lf-en').classList.remove('bright');
+  }
+  if (loopFlashPhase === 'out' && loopFlashTimer >= 0.6) {
+    loopFlashPhase = 'idle';
+    document.getElementById('loop-flash').classList.remove('active');
+  }
+}
+
+function resetLoopFlash() {
+  loopFlashPhase = 'idle';
+  document.getElementById('loop-flash').classList.remove('active');
+  document.getElementById('lf-word').classList.remove('bright');
+  document.getElementById('lf-en').classList.remove('bright');
+}
+
+// ── Crash quiz ───────────────────────────────────────────────────────
+let crashRestartLocked = false;
+let crashQuizAnswered = false;
+let crashQuizAutoUnlockTimer = 0;
+const CRASH_QUIZ_AUTO_UNLOCK = 12; // seconds until R unlocks automatically
+
+function showCrashQuiz() {
+  const word = FC_WORDS[Math.floor(Math.random() * FC_WORDS.length)];
+
+  // Build 4 shuffled options
+  const opts = [word];
+  let safety = 0;
+  while (opts.length < 4 && safety < 200) {
+    safety++;
+    const r = FC_WORDS[Math.floor(Math.random() * FC_WORDS.length)];
+    if (!opts.find(o => o.es === r.es)) opts.push(r);
+  }
+  opts.sort(() => Math.random() - 0.5);
+
+  document.getElementById('cq-word').textContent = word.es;
+  document.getElementById('cq-feedback').textContent = '';
+  document.getElementById('cq-feedback').style.color = '';
+
+  const optEl = document.getElementById('cq-options');
+  optEl.innerHTML = '';
+  opts.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'cq-btn';
+    btn.textContent = opt.en;
+    btn.addEventListener('click', () => checkCrashAnswer(btn, opt, word, optEl));
+    optEl.appendChild(btn);
+  });
+
+  const quiz = document.getElementById('crash-quiz');
+  quiz.classList.add('visible');
+  requestAnimationFrame(() => requestAnimationFrame(() => quiz.classList.add('shown')));
+
+  // Speak the word
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(word.es);
+    utt.lang = 'es-ES'; utt.rate = 0.8;
+    const voices = window.speechSynthesis.getVoices();
+    const esV = voices.find(v => v.lang.startsWith('es'));
+    if (esV) utt.voice = esV;
+    window.speechSynthesis.speak(utt);
+  }
+}
+
+function checkCrashAnswer(btn, chosen, correct, optEl) {
+  if (crashQuizAnswered) return;
+  crashQuizAnswered = true;
+
+  const allBtns = optEl.querySelectorAll('.cq-btn');
+  allBtns.forEach(b => {
+    b.disabled = true;
+    if (b.textContent === correct.en) b.classList.add('cq-correct');
+  });
+
+  const feedback = document.getElementById('cq-feedback');
+  if (chosen.es === correct.es) {
+    feedback.textContent = 'correcto.';
+    feedback.style.color = 'rgba(0,255,80,0.85)';
+  } else {
+    btn.classList.add('cq-wrong');
+    feedback.textContent = 'incorrecto.';
+    feedback.style.color = 'rgba(255,70,70,0.8)';
+  }
+  setTimeout(unlockCrashRestart, 1000);
+}
+
+function unlockCrashRestart() {
+  crashRestartLocked = false;
+  const el = document.getElementById('crash-restart');
+  el.classList.add('unlocked');
+}
+
+function updateCrashQuiz(dt) {
+  if (!crashRestartLocked) return;
+  crashQuizAutoUnlockTimer += dt;
+  if (crashQuizAutoUnlockTimer >= CRASH_QUIZ_AUTO_UNLOCK) {
+    unlockCrashRestart();
+  }
+}
+
+function resetCrashQuiz() {
+  crashRestartLocked = false;
+  crashQuizAnswered = false;
+  crashQuizAutoUnlockTimer = 0;
+  const quiz = document.getElementById('crash-quiz');
+  quiz.classList.remove('visible', 'shown');
+  document.getElementById('cq-options').innerHTML = '';
+  document.getElementById('cq-feedback').textContent = '';
+  document.getElementById('crash-restart').classList.remove('unlocked');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  END VOCAB INTEGRATION SYSTEM
 // ══════════════════════════════════════════════════════════════════════
 </script>
 <script>
@@ -1269,9 +1681,8 @@ function getSignContent(idx){const t=((idx%5)+5)%5;switch(t){
   case 0:return{l1:Math.floor(progress/10)+' counts',l2:''};
   case 1:return{l1:ghosts.length+(ghosts.length===1?' iteration':' iterations'),l2:'there is nobody on this road'};
   case 2:return{l1:'progress '+loopCount,l2:Math.floor(progress/10)+' counts'};
-  case 3:return{l1:'no exit ahead.',l2:ghosts.length+' iterations.'};
-  case 4:return{l1:Math.floor(progress/10)+' counts',l2:ghosts.length+' iterations ahead.'};}}
-function updateSignTexture(sign,l1,l2){if(sign.userData.line1===l1&&sign.userData.line2===l2)return;sign.userData.line1=l1;sign.userData.line2=l2;
+  case 3:{const rngV=seededRNG(Math.abs(idx)*1337+42);const wi=Math.floor(rngV()*FC_WORDS.length);return{l1:FC_WORDS[wi].es,l2:FC_WORDS[wi].en};}
+  case 4:return{l1:Math.floor(progress/10)+' counts',l2:ghosts.length+' iterations ahead.'};}}function updateSignTexture(sign,l1,l2){if(sign.userData.line1===l1&&sign.userData.line2===l2)return;sign.userData.line1=l1;sign.userData.line2=l2;
   sign.userData.text=l2?(l1+'  —  '+l2):l1;drawSignText(sign.userData.ctx,l1,l2);sign.userData.texture.needsUpdate=true;}
 function updateSigns(prog){const base=Math.floor(prog/SIGN_SPACING)-1,sx=ROAD_WIDTH/2+2.5;
   for(let i=0;i<NUM_SIGN_SLOTS;i++){const idx=base+i,z=idx*SIGN_SPACING;roadSigns[i].position.set(sx,0,-z);const c=getSignContent(idx);updateSignTexture(roadSigns[i],c.l1,c.l2);}}
@@ -1579,7 +1990,7 @@ window.addEventListener('keydown',e=>{
   if(fcOpen) return; // Block game input when flashcards open (handled by capture listener above)
   keys[e.code]=true;
   if(e.code==='KeyP'&&!e.repeat)togglePause();
-  if(e.code==='KeyR'&&crashed)restartGame();
+  if(e.code==='KeyR'&&crashed&&!crashRestartLocked)restartGame();
   if(e.code==='KeyC'&&!e.repeat&&!crashed)cycleCamera();
 });
 window.addEventListener('keyup',e=>{if(!fcOpen)keys[e.code]=false;});
@@ -1692,7 +2103,14 @@ function triggerCrash(ghostRef){if(crashed)return;crashed=true;
     const secs=randomSeconds%60;
     crashMsgEl.textContent='you will kill yourself in '+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0')+'';
   }
-  crashOverlay.classList.add('active');}
+  crashOverlay.classList.add('active');
+  // Lock restart and show vocab quiz after short delay
+  crashRestartLocked = true;
+  crashQuizAnswered = false;
+  crashQuizAutoUnlockTimer = 0;
+  document.getElementById('crash-restart').classList.remove('unlocked');
+  setTimeout(showCrashQuiz, 1800);
+}
 
 function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   for(const gh of ghosts)scene.remove(gh.mesh);ghosts.length=0;allRecordings.length=0;currentRecording=[];
@@ -1719,6 +2137,11 @@ function restartGame(){crashed=false;crashOverlay.classList.remove('active');
   deathWobbleX = 0;
   deathWobbleY = 0;
   deathWobbleZ = 0;
+
+  // Reset integration systems
+  resetCrashQuiz();
+  resetSubliminal();
+  resetLoopFlash();
   
   exitLock();setCursorLocked(false);
 }
@@ -1736,6 +2159,9 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
   }
   
   updateControlsMenu(dt);
+  updateSubliminal(dt);
+  updateLoopFlash(dt);
+  updateCrashQuiz(dt);
   
   if(flashActive){
     flashProgress+=dt;
@@ -1835,6 +2261,11 @@ function frame(ts){requestAnimationFrame(frame);const dt=Math.min((ts-lastT)/100
     spawnObstacles(loopCount);spawnLandmarks(loopCount);
     
     headlightPower=Math.max(0.3,headlightPower-0.05);
+
+    // Flash a vocab word on loop completion
+    triggerLoopFlash(loopCount);
+    // Also reset subliminal timer so one doesn't stack
+    subliminalTimer = 0;
   }
 
   const baseZ=curLoop*ROAD_LENGTH,cosH=Math.cos(heading),sinH=Math.sin(heading);
